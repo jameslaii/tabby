@@ -1,0 +1,54 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Palette from the Tabby brand sheet. */
+:root {
+  --ink: #2a211c;
+  --ginger: #d9730d;
+  --ginger-dark: #b85a0a;
+  --teal: #1f5f5b;
+  --paper: #f5d9b0;
+  --canvas: #fdfbf9;
+}
+
+body {
+  background: var(--canvas);
+  color: var(--ink);
+  -webkit-font-smoothing: antialiased;
+}
+
+@layer components {
+  .card {
+    @apply rounded-2xl border border-ink/10 bg-white p-5 shadow-[0_1px_2px_rgba(42,33,28,0.04)];
+  }
+
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-full px-5 py-2.5
+           text-sm font-semibold transition active:scale-[0.98]
+           disabled:pointer-events-none disabled:opacity-50;
+  }
+  .btn-primary {
+    @apply btn bg-ginger text-white hover:bg-ginger-dark;
+  }
+  .btn-secondary {
+    @apply btn border border-ink/15 bg-white text-ink hover:bg-paper/40;
+  }
+  .btn-teal {
+    @apply btn bg-teal text-white hover:brightness-110;
+  }
+
+  .field {
+    @apply w-full rounded-xl border border-ink/15 bg-white px-4 py-2.5 text-[15px]
+           outline-none placeholder:text-ink/35 focus:border-teal
+           focus:ring-2 focus:ring-teal/20;
+  }
+
+  .label {
+    @apply mb-1.5 block text-xs font-semibold uppercase tracking-wider text-ink/50;
+  }
+
+  .chip {
+    @apply inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium;
+  }
+}
