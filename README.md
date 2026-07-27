@@ -27,6 +27,9 @@ To read real photos, set `ANTHROPIC_API_KEY` in `.env.local`.
 | `lib/money.ts` | Integer-cent primitives and largest-remainder apportionment |
 | `lib/splits.ts` | Claude's item→person mapping → exact per-person amounts |
 | `lib/balances.ts` | Net positions and greedy debt simplification |
+| `lib/categories.ts` | The fixed category vocabulary and keyword fallback |
+| `lib/classify.ts` | Batched Claude categorization of expense descriptions |
+| `lib/insights.ts` | Spend aggregation for the insights panel |
 | `lib/parseReceipt.ts` | The Claude vision + Structured Outputs call |
 | `lib/store.ts` | In-memory data layer, shaped 1:1 to `supabase/schema.sql` |
 | `app/` | Next.js App Router pages, server actions, parse API route |
@@ -53,6 +56,30 @@ total read `$1000` instead of `$100` billed `$933.34` to whoever happened to be
 first in the array. Here a discrepancy has nowhere to hide: it surfaces as a
 warning on the review screen instead. `docs/TEST_PLAN.md` has the six
 reproduced failures; `tests/splits.test.ts` pins each one.
+
+## Insights
+
+Every expense is classified into one of ten fixed categories — Dining,
+Groceries, Transport, Accommodation, Attractions, Shopping, Nightlife,
+Utilities, Health, Other — and the group page shows spend broken down by them,
+switchable between what the whole group spent and your own share.
+
+Classification is **batched and lazy**, not per-expense-on-save. Adding "taxi,
+$12" has to feel instant, so expenses save with no category and the panel
+upgrades every pending one in a single call when you open it. Receipt line
+items are passed alongside the description, which is usually the stronger
+signal — a receipt titled "Receipt" whose items are salmon and Riesling is
+plainly Dining.
+
+The vocabulary is a closed enum enforced by the JSON Schema, deliberately: let
+the model invent labels and you get "Dining", "Restaurants" and "Food" as three
+separate rows. A category you pick by hand is marked `manual` and the AI pass
+will never overwrite it. With no API key, a keyword fallback labels everything
+so the panel is never empty.
+
+Bars are single-hue on purpose. Spending categories are nominal — there's no
+natural order to them — so shading bars by size would double-encode length as
+colour; identity comes from the label and emoji instead.
 
 ## Not done yet
 

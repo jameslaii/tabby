@@ -10,6 +10,9 @@ import {
   getSettlements,
 } from "../../../lib/store";
 import { AddMemberForm, SettleUpForm } from "../../../components/Forms";
+import { InsightsPanel } from "../../../components/InsightsPanel";
+import { buildInsights } from "../../../lib/insights";
+import { CATEGORY_EMOJI } from "../../../lib/categories";
 
 export default async function GroupPage({
   params,
@@ -120,6 +123,11 @@ export default async function GroupPage({
         </div>
       </section>
 
+      <InsightsPanel
+        groupId={id}
+        initial={buildInsights(expenses, me)}
+      />
+
       <section className="card">
         <h2 className="mb-4 font-bold">Expenses</h2>
         {expenses.length === 0 ? (
@@ -129,11 +137,12 @@ export default async function GroupPage({
             {expenses.map((e) => (
               <li key={e.id} className="flex items-start gap-3 py-3">
                 <div className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-paper/50 text-sm">
-                  {e.sourceType === "receipt_ai" ? "🧾" : "✍️"}
+                  {e.category ? CATEGORY_EMOJI[e.category] : "🧾"}
                 </div>
                 <div className="min-w-0 flex-1">
                   <div className="font-semibold">{e.description}</div>
                   <div className="text-xs text-ink/50">
+                    {e.category ?? "Uncategorized"} ·{" "}
                     {e.payers.map((p) => nameOf(p.memberId)).join(" & ")} paid ·{" "}
                     {e.expenseDate}
                     {e.lineItems.length > 0 &&

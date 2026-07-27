@@ -1,4 +1,5 @@
 import type { Cents } from "./money";
+import type { Category } from "./categories";
 
 export interface GroupMember {
   id: string;
@@ -41,7 +42,9 @@ export interface Expense {
   id: string;
   groupId: string;
   description: string;
-  category: string | null;
+  category: Category | null;
+  /** Where the category came from — an AI guess must never overwrite a human choice. */
+  categorySource: "ai" | "manual" | null;
   totalAmount: Cents;
   currency: string;
   expenseDate: string;

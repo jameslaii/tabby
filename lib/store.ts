@@ -1,4 +1,5 @@
 import { apportion, toCents, type Cents } from "./money";
+import type { Category } from "./categories";
 import type {
   ActivityEntry,
   Expense,
@@ -54,7 +55,8 @@ function seed(): Db {
   const dinner = manualExpense({
     groupId: group.id,
     description: "Tasca dinner",
-    category: "Food",
+    category: null,
+    categorySource: null,
     payers: [["mem-you", 12000]],
     participantIds: members.map((m) => m.id),
     totalCents: 12000,
@@ -64,6 +66,7 @@ function seed(): Db {
     groupId: group.id,
     description: "Airport taxi",
     category: "Transport",
+    categorySource: "manual",
     payers: [["mem-sarah", 4500]],
     participantIds: ["mem-you", "mem-sarah", "mem-alex"],
     totalCents: 4500,
@@ -147,7 +150,8 @@ function logActivity(entry: Omit<ActivityEntry, "id" | "createdAt">) {
 function manualExpense(input: {
   groupId: string;
   description: string;
-  category: string | null;
+  category: Category | null;
+  categorySource: "ai" | "manual" | null;
   payers: [string, Cents][];
   participantIds: string[];
   totalCents: Cents;
@@ -163,6 +167,7 @@ function manualExpense(input: {
     groupId: input.groupId,
     description: input.description,
     category: input.category,
+    categorySource: input.categorySource,
     totalAmount: input.totalCents,
     currency: "USD",
     expenseDate: new Date().toISOString().slice(0, 10),
@@ -186,7 +191,7 @@ function manualExpense(input: {
 export function addManualExpense(input: {
   groupId: string;
   description: string;
-  category: string | null;
+  category: Category | null;
   amount: string;
   payerId: string;
   participantIds: string[];
@@ -196,6 +201,7 @@ export function addManualExpense(input: {
     groupId: input.groupId,
     description: input.description,
     category: input.category,
+    categorySource: input.category ? "manual" : null,
     payers: [[input.payerId, totalCents]],
     participantIds: input.participantIds,
     totalCents,
@@ -225,7 +231,8 @@ export function addItemizedExpense(input: {
     id: id(),
     groupId: input.groupId,
     description: input.description,
-    category: "Food",
+    category: null,
+    categorySource: null,
     totalAmount: input.totalCents,
     currency: "USD",
     expenseDate: new Date().toISOString().slice(0, 10),
@@ -247,6 +254,36 @@ export function addItemizedExpense(input: {
     entityId: expense.id,
   });
   return expense;
+}
+
+/** Expenses that have never been categorized, oldest first. */
+export function getUncategorized(groupId: string): Expense[] {
+  return db.expenses.filter((e) => e.groupId === groupId && e.category === null);
+}
+
+/**
+ * Apply classification results.
+ *
+ * A `manual` category is never overwritten: if someone picked "Groceries" for
+ * the corner-shop run, a later batch run must not quietly relabel it.
+ */
+export function setCategories(
+  groupId: string,
+  updates: Record<string, Category>,
+): number {
+  let applied = 0;
+  for (const expense of db.expenses) {
+    if (expense.groupId !== groupId) continue;
+    if (expense.categorySource === "manual") continue;
+
+    const next = updates[expense.id];
+    if (!next || next === expense.category) continue;
+
+    expense.category = next;
+    expense.categorySource = "ai";
+    applied += 1;
+  }
+  return applied;
 }
 
 export function addSettlement(input: {

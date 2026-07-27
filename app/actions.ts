@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { toCents } from "../lib/money";
 import { computeFinalSplits } from "../lib/splits";
+import { isCategory } from "../lib/categories";
 import type { LineItem, ParsedReceipt } from "../lib/types";
 import {
   addItemizedExpense,
@@ -36,6 +37,7 @@ export async function addExpenseAction(
     return { error: "Pick at least one person to split between." };
   }
 
+  const rawCategory = String(formData.get("category") ?? "");
   const description = String(formData.get("description") ?? "").trim();
   if (!description) return { error: "Give the expense a description." };
 
@@ -43,7 +45,7 @@ export async function addExpenseAction(
     addManualExpense({
       groupId,
       description,
-      category: String(formData.get("category") ?? "") || null,
+      category: isCategory(rawCategory) ? rawCategory : null,
       amount: String(formData.get("amount") ?? ""),
       payerId: String(formData.get("payerId")),
       participantIds,

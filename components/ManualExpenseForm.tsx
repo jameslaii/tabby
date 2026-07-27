@@ -3,6 +3,7 @@
 import { useActionState } from "react";
 import { addExpenseAction, type ActionResult } from "../app/actions";
 import type { GroupMember } from "../lib/types";
+import { CATEGORIES, CATEGORY_EMOJI } from "../lib/categories";
 
 export function ManualExpenseForm({
   groupId,
@@ -51,12 +52,15 @@ export function ManualExpenseForm({
           <label className="label" htmlFor="category">
             Category
           </label>
-          <select id="category" name="category" className="field">
-            <option>Food</option>
-            <option>Transport</option>
-            <option>Stay</option>
-            <option>Activities</option>
-            <option>Other</option>
+          {/* Empty value means "let Tabby classify it". A category picked
+              here is marked manual and is never overwritten by the AI pass. */}
+          <select id="category" name="category" className="field" defaultValue="">
+            <option value="">✨ Auto</option>
+            {CATEGORIES.map((c) => (
+              <option key={c} value={c}>
+                {CATEGORY_EMOJI[c]} {c}
+              </option>
+            ))}
           </select>
         </div>
       </div>
