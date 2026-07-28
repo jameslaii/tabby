@@ -1,0 +1,1549 @@
+<!--
+  Tabby — standalone prototype.
+
+  A self-contained mirror of the app for sharing and review. The money logic
+  below (toCents, apportion, computeFinalSplits, computeBalances,
+  simplifyDebts, buildInsights, classifyLocally) is ported verbatim from
+  lib/*.ts, so the numbers this page produces are the numbers the real app
+  produces — not mocked screenshots.
+
+  Two things it can't do, because a static page has no server: read a real
+  receipt photo (it uses the same fixed sample the app falls back to without
+  an API key) and call Claude for categorization (it uses the same keyword
+  fallback). Both paths are the app's own code.
+
+  Because it duplicates logic, it can drift from lib/. Treat lib/ as the
+  source of truth and re-port if the maths changes.
+-->
+<style>
+  :root {
+    color-scheme: light;
+
+    --ink: #2a211c;
+    --ginger: #d9730d;
+    --ginger-dark: #b85a0a;
+    --teal: #1f5f5b;
+    --paper: #f5d9b0;
+    --canvas: #fdfbf9;
+
+    /* Chrome around the device. The one value not inherited from the app. */
+    --stage: #191310;
+    --stage-text: #b9aca3;
+  }
+
+  /* The app commits to a single warm light world — both design references
+     are light, and the gradient wash is the identity. Pinned rather than
+     inverted so a dark-mode viewer gets the design as drawn. */
+  :root[data-theme="dark"],
+  :root[data-theme="light"] {
+    color-scheme: light;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--stage);
+    font-family: ui-rounded, "Nunito", "Quicksand", system-ui, -apple-system,
+      "Segoe UI", sans-serif;
+    -webkit-font-smoothing: antialiased;
+    color: var(--stage-text);
+  }
+
+  .stage {
+    min-height: 100dvh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 18px;
+    padding: 28px 20px 34px;
+    background:
+      radial-gradient(70% 50% at 50% 0%, #241b16 0%, rgba(36, 27, 22, 0) 70%),
+      var(--stage);
+  }
+
+  .stage-head {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    justify-content: center;
+    text-align: center;
+  }
+  .stage-head h1 {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 800;
+    letter-spacing: -0.01em;
+    color: #f0e7df;
+  }
+  .stage-head p {
+    margin: 0;
+    font-size: 13px;
+    line-height: 1.5;
+  }
+  .restart {
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    background: rgba(255, 255, 255, 0.06);
+    color: #e8ddd4;
+    font: inherit;
+    font-size: 12.5px;
+    font-weight: 700;
+    padding: 7px 15px;
+    border-radius: 999px;
+    cursor: pointer;
+  }
+  .restart:hover { background: rgba(255, 255, 255, 0.12); }
+  .restart:focus-visible { outline: 2px solid var(--ginger); outline-offset: 2px; }
+
+  /* --- Device shell -------------------------------------------------- */
+  .device {
+    width: 390px;
+    height: 844px;
+    max-height: calc(100dvh - 130px);
+    border-radius: 44px;
+    padding: 5px;
+    background: linear-gradient(160deg, #4a3f37 0%, #241d18 45%, #100c0a 100%);
+    box-shadow:
+      0 40px 90px -30px rgba(0, 0, 0, 0.85),
+      0 0 0 1px rgba(255, 255, 255, 0.06) inset;
+    flex-shrink: 0;
+  }
+  .screen {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    border-radius: 39px;
+    overflow-y: auto;
+    overflow-x: hidden;
+    background: var(--canvas);
+    scrollbar-width: none;
+  }
+  .screen::-webkit-scrollbar { display: none; }
+
+  /* The warm wash, fixed within the device rather than the viewport. */
+  .screen::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    background:
+      radial-gradient(120% 80% at 12% -5%, #fbe6cf 0%, rgba(251, 230, 207, 0) 55%),
+      radial-gradient(95% 65% at 88% 4%, #fce7e0 0%, rgba(252, 231, 224, 0) 52%),
+      radial-gradient(80% 50% at 70% 32%, #f7f0dd 0%, rgba(247, 240, 221, 0) 60%),
+      linear-gradient(180deg, #fdf7f0 0%, #fdfbf9 48%, #ffffff 100%);
+    background-attachment: local;
+  }
+  .screen::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    background-image: radial-gradient(rgba(42, 33, 28, 0.055) 1px, transparent 1px);
+    background-size: 14px 14px;
+    -webkit-mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.85), transparent 55%);
+    mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.85), transparent 55%);
+  }
+  .view {
+    position: relative;
+    z-index: 1;
+    min-height: 100%;
+    color: var(--ink);
+  }
+
+  @media (max-width: 460px) {
+    .stage { padding: 0; gap: 0; justify-content: flex-start; }
+    .stage-head { display: none; }
+    .device {
+      width: 100%;
+      height: 100dvh;
+      max-height: none;
+      border-radius: 0;
+      padding: 0;
+      box-shadow: none;
+    }
+    .screen { border-radius: 0; }
+  }
+
+  /* --- Tabby's system, ported from app/globals.css -------------------- */
+  .app { padding: 0 20px 40px; }
+  .app-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 20px 0;
+  }
+  .brand { display: flex; align-items: center; gap: 10px; cursor: pointer; }
+  .brand-name { font-size: 20px; font-weight: 800; letter-spacing: -0.02em; }
+
+  .card {
+    border-radius: 24px;
+    padding: 20px;
+    background: rgba(255, 255, 255, 0.55);
+    backdrop-filter: blur(20px) saturate(140%);
+    -webkit-backdrop-filter: blur(20px) saturate(140%);
+    border: 1px solid rgba(255, 255, 255, 0.72);
+    box-shadow:
+      0 10px 30px -12px rgba(42, 33, 28, 0.16),
+      0 2px 6px rgba(42, 33, 28, 0.03);
+  }
+  .card-data {
+    background: rgba(255, 255, 255, 0.88);
+    border-color: rgba(255, 255, 255, 0.9);
+  }
+
+  .display {
+    font-size: clamp(30px, 8.4vw, 38px);
+    font-weight: 800;
+    line-height: 1.06;
+    letter-spacing: -0.025em;
+    margin: 0;
+    text-wrap: balance;
+  }
+  .card-title { font-size: 17px; font-weight: 800; letter-spacing: -0.01em; margin: 0; }
+  .lede {
+    font-size: 15px;
+    line-height: 1.6;
+    color: rgba(42, 33, 28, 0.55);
+    margin: 0;
+    text-wrap: balance;
+  }
+  .hero-figure {
+    font-size: 46px;
+    font-weight: 800;
+    line-height: 1;
+    letter-spacing: -0.03em;
+  }
+  .eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    border-radius: 999px;
+    padding: 6px 14px;
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--ginger-dark);
+    border: 1px solid rgba(217, 115, 13, 0.26);
+    background: rgba(255, 255, 255, 0.6);
+  }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    border-radius: 999px;
+    padding: 14px 24px;
+    font: inherit;
+    font-size: 15px;
+    font-weight: 700;
+    border: none;
+    cursor: pointer;
+    transition: transform 0.12s ease, background 0.15s ease;
+    width: 100%;
+  }
+  .btn:active { transform: scale(0.985); }
+  .btn:disabled { opacity: 0.45; pointer-events: none; }
+  .btn:focus-visible { outline: 2px solid var(--teal); outline-offset: 2px; }
+  .btn-primary {
+    background: var(--ink);
+    color: #fff;
+    box-shadow: 0 8px 20px -8px rgba(42, 33, 28, 0.5);
+  }
+  .btn-primary:hover { background: #3a2f28; }
+  .btn-secondary {
+    background: rgba(255, 255, 255, 0.7);
+    color: var(--ink);
+    border: 1px solid rgba(42, 33, 28, 0.1);
+  }
+  .btn-secondary:hover { background: rgba(255, 255, 255, 0.95); }
+  .btn-ghost {
+    width: 100%;
+    padding: 12px;
+    background: none;
+    border: none;
+    font: inherit;
+    font-size: 15px;
+    font-weight: 700;
+    color: rgba(42, 33, 28, 0.45);
+    cursor: pointer;
+  }
+  .btn-ghost:hover { color: rgba(42, 33, 28, 0.7); }
+
+  .field {
+    width: 100%;
+    border-radius: 16px;
+    padding: 12px 16px;
+    font: inherit;
+    font-size: 15px;
+    color: var(--ink);
+    background: rgba(255, 255, 255, 0.75);
+    border: 1px solid rgba(42, 33, 28, 0.1);
+    outline: none;
+  }
+  .field:focus {
+    border-color: rgba(31, 95, 91, 0.55);
+    box-shadow: 0 0 0 4px rgba(31, 95, 91, 0.1);
+    background: #fff;
+  }
+  .field::placeholder { color: rgba(42, 33, 28, 0.3); }
+  .label {
+    display: block;
+    margin-bottom: 6px;
+    font-size: 11px;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: rgba(42, 33, 28, 0.4);
+  }
+
+  .stack { display: flex; flex-direction: column; gap: 16px; }
+  .row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  .hero { text-align: center; padding: 8px 0 24px; }
+  .muted { color: rgba(42, 33, 28, 0.45); }
+  .num { font-variant-numeric: tabular-nums; }
+  .teal { color: var(--teal); }
+  .ginger { color: var(--ginger-dark); }
+  .back {
+    display: inline-block;
+    padding: 4px 0;
+    font-size: 14px;
+    font-weight: 700;
+    color: rgba(42, 33, 28, 0.45);
+    background: none;
+    border: none;
+    font-family: inherit;
+    cursor: pointer;
+  }
+  .back:hover { color: rgba(42, 33, 28, 0.7); }
+
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    border-radius: 999px;
+    padding: 5px 12px;
+    font-size: 12px;
+    font-weight: 600;
+  }
+  .chip-ghost { background: rgba(245, 217, 176, 0.5); color: rgba(42, 33, 28, 0.7); }
+  .chip-real { background: rgba(31, 95, 91, 0.1); color: var(--teal); }
+
+  .tile {
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    min-height: 68px;
+    border-radius: 16px;
+    padding: 12px;
+    background: var(--canvas);
+  }
+  .tile-label {
+    font-size: 10px;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: rgba(42, 33, 28, 0.4);
+  }
+  .tile-value {
+    margin-top: 4px;
+    font-size: 14px;
+    font-weight: 800;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .bar-track {
+    height: 8px;
+    flex: 1;
+    border-radius: 1px 999px 999px 1px;
+    background: rgba(42, 33, 28, 0.06);
+    overflow: hidden;
+  }
+  .bar-fill {
+    height: 100%;
+    border-radius: 0 4px 4px 0;
+    background: var(--teal);
+    transition: width 0.35s ease;
+  }
+
+  .seg {
+    display: flex;
+    border-radius: 999px;
+    padding: 2px;
+    background: rgba(42, 33, 28, 0.05);
+  }
+  .seg button {
+    border: none;
+    background: none;
+    font: inherit;
+    font-size: 12px;
+    font-weight: 700;
+    padding: 5px 14px;
+    border-radius: 999px;
+    color: rgba(42, 33, 28, 0.5);
+    cursor: pointer;
+  }
+  .seg button[aria-pressed="true"] {
+    background: #fff;
+    color: var(--ink);
+    box-shadow: 0 1px 3px rgba(42, 33, 28, 0.1);
+  }
+
+  .person {
+    border: none;
+    font: inherit;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 5px 12px;
+    border-radius: 999px;
+    cursor: pointer;
+    background: rgba(42, 33, 28, 0.05);
+    color: rgba(42, 33, 28, 0.5);
+    transition: background 0.12s ease;
+  }
+  .person[aria-pressed="true"] { background: var(--teal); color: #fff; }
+  .person:focus-visible { outline: 2px solid var(--ink); outline-offset: 1px; }
+
+  .notice { border-radius: 16px; padding: 14px 16px; font-size: 14px; line-height: 1.5; }
+  .notice-sample { background: rgba(245, 217, 176, 0.6); color: rgba(42, 33, 28, 0.75); }
+  .notice-warn {
+    background: rgba(217, 115, 13, 0.06);
+    border: 1px solid rgba(217, 115, 13, 0.28);
+  }
+
+  .divide > * + * { border-top: 1px solid rgba(42, 33, 28, 0.08); }
+
+  .progress { display: flex; gap: 6px; }
+  .progress span {
+    height: 4px;
+    flex: 1;
+    border-radius: 999px;
+    background: rgba(42, 33, 28, 0.1);
+    transition: background 0.3s ease;
+  }
+  .progress span.on { background: rgba(42, 33, 28, 0.7); }
+
+  .fade { animation: fadeUp 0.45s ease-out; }
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+
+  .sr {
+    position: absolute;
+    width: 1px; height: 1px;
+    padding: 0; margin: -1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+</style>
+
+<div class="stage">
+  <div class="stage-head">
+    <h1>Tabby — v1 prototype</h1>
+    <p>Fully interactive. Every figure is computed by the app's own splitting code.</p>
+    <button class="restart" id="restart" type="button">Restart</button>
+  </div>
+  <div class="device">
+    <div class="screen" id="screen"><div class="view" id="view"></div></div>
+  </div>
+</div>
+
+<script>
+"use strict";
+
+/* =====================================================================
+   lib/money.ts
+   ===================================================================== */
+
+function toCents(value) {
+  if (typeof value === "number") {
+    if (!Number.isFinite(value)) throw new Error("non-finite");
+    return Math.sign(value) * Math.round(Math.abs(value) * 100);
+  }
+  const trimmed = String(value).trim();
+  const match = /^(-?)(\d+)(?:\.(\d+))?$/.exec(trimmed);
+  if (!match) throw new Error("unparseable money string");
+  const sign = match[1], whole = match[2], fraction = match[3] || "";
+  const cents = Number(whole) * 100 + Number((fraction + "00").slice(0, 2));
+  const third = fraction.length > 2 ? Number(fraction[2]) : 0;
+  const rounded = cents + (third >= 5 ? 1 : 0);
+  return sign === "-" ? -rounded : rounded;
+}
+
+const fmt = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
+const formatCents = (c) => fmt.format(c / 100);
+const formatAbs = (c) => fmt.format(Math.abs(c) / 100);
+
+/** Largest-remainder apportionment — exact by construction. */
+function apportion(total, weights, keys) {
+  if (weights.length !== keys.length) throw new Error("length mismatch");
+  if (weights.length === 0) return [];
+  if (weights.some((w) => !Number.isFinite(w) || w < 0)) throw new Error("bad weight");
+
+  const totalWeight = weights.reduce((a, b) => a + b, 0);
+  if (totalWeight <= 0) throw new Error("total weight must be greater than zero");
+
+  const sign = total < 0 ? -1 : 1;
+  const magnitude = Math.abs(total);
+  const exact = weights.map((w) => (magnitude * w) / totalWeight);
+  const floors = exact.map(Math.floor);
+  let remaining = magnitude - floors.reduce((a, b) => a + b, 0);
+
+  const order = exact
+    .map((value, i) => ({ i: i, frac: value - Math.floor(value), key: keys[i] }))
+    .sort((a, b) => b.frac - a.frac || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
+
+  const parts = floors.slice();
+  for (let n = 0; n < order.length && remaining > 0; n++) {
+    if (weights[order[n].i] === 0) continue;
+    parts[order[n].i] += 1;
+    remaining -= 1;
+  }
+  return parts.map((p) => sign * p);
+}
+
+/* =====================================================================
+   lib/categories.ts
+   ===================================================================== */
+
+const CATEGORIES = ["Dining","Groceries","Transport","Accommodation","Attractions",
+  "Shopping","Nightlife","Utilities","Health","Other"];
+
+const CATEGORY_EMOJI = {
+  Dining: "🍽️", Groceries: "🛒", Transport: "🚕", Accommodation: "🏨",
+  Attractions: "🎟️", Shopping: "🛍️", Nightlife: "🍸", Utilities: "💡",
+  Health: "💊", Other: "🧾",
+};
+
+const VOCABULARY = [
+  ["Nightlife", ["bar","pub","club","cocktail","beer","nightcap","brewery","wine bar","tapas bar"]],
+  ["Groceries", ["grocer","groceries","supermarket","market","mercado","deli","bakery","butcher","corner shop"]],
+  ["Dining", ["restaurant","dinner","lunch","breakfast","brunch","cafe","café","coffee",
+    "tasca","taqueria","bistro","diner","takeaway","food","pizza","sushi","steak","salmon",
+    "chicken","pasta","burger","salad","soup","sandwich","fries","tapas","dessert",
+    "appetizer","entree","risotto","curry","noodle","burrata","toast"]],
+  ["Transport", ["taxi","uber","lyft","cab","train","metro","bus","tram","flight","airline",
+    "airport","fuel","petrol","gas","parking","toll","car hire","rental car","ferry","fare"]],
+  ["Accommodation", ["hotel","hostel","airbnb","guesthouse","lodge","motel","apartment","stay","accommodation","resort"]],
+  ["Attractions", ["museum","gallery","tour","ticket","entry","entrance","park","zoo","aquarium",
+    "castle","cathedral","show","concert","cinema","theatre","theater","excursion","sightseeing"]],
+  ["Health", ["pharmacy","chemist","doctor","clinic","hospital","medicine","dentist","insurance"]],
+  ["Shopping", ["shop","store","clothes","clothing","souvenir","gift","electronics","book","mall"]],
+  ["Utilities", ["wifi","internet","phone","sim","data","electricity","water bill","laundry","utilities"]],
+];
+
+// Stems match their plurals: `\bcocktail\b` misses "Cocktails".
+const RULES = VOCABULARY.map(function (entry) {
+  const words = entry[1].map((w) => w.replace(/ /g, " ?")).join("|");
+  return [entry[0], new RegExp("\\b(?:" + words + ")(?:e?s)?\\b", "i")];
+});
+
+function classifyLocally(text) {
+  for (const rule of RULES) if (rule[1].test(text)) return rule[0];
+  return "Other";
+}
+
+/* =====================================================================
+   lib/splits.ts — Claude's item→person mapping to exact amounts
+   ===================================================================== */
+
+const WHOLE_BILL = "WHOLE_BILL";
+
+const normalizeName = (name) =>
+  name.trim().toLowerCase().normalize("NFKD")
+    .replace(/[̀-ͯ]/g, "").replace(/\s+/g, " ");
+
+const isUsableWeighting = (w) =>
+  w.every((x) => Number.isFinite(x) && x >= 0) && w.reduce((a, b) => a + b, 0) > 0;
+
+const money = (cents) => "$" + (Math.abs(cents) / 100).toFixed(2);
+
+function computeFinalSplits(parsed, members) {
+  const warnings = [];
+  const warn = (code, message, lineItemTempId) =>
+    warnings.push({ code: code, message: message, lineItemTempId: lineItemTempId });
+
+  if (members.length === 0) return { splits: [], warnings: warnings, totalCents: 0 };
+
+  for (const item of parsed.unresolved_items) {
+    warn("model_flagged", item.reason, item.line_item_temp_id);
+  }
+
+  const byName = new Map();
+  for (const m of members) {
+    const key = normalizeName(m.displayName);
+    byName.set(key, (byName.get(key) || []).concat([m]));
+  }
+
+  const subtotalByMember = new Map(members.map((m) => [m.id, 0]));
+  const credit = (id, amount) =>
+    subtotalByMember.set(id, (subtotalByMember.get(id) || 0) + amount);
+
+  const resolve = (names, tempId) =>
+    names.map(function (name) {
+      const matches = byName.get(normalizeName(name));
+      if (!matches || matches.length === 0) {
+        warn("unknown_member_name", '"' + name + '" doesn\'t match anyone in this group.', tempId);
+        return null;
+      }
+      if (matches.length > 1) {
+        warn("ambiguous_member_name",
+          '"' + name + '" matches ' + matches.length + " members — assign this one by hand.", tempId);
+        return null;
+      }
+      return matches[0];
+    });
+
+  const assignmentFor = new Map();
+  for (const a of parsed.assignments) {
+    if (assignmentFor.has(a.line_item_temp_id)) {
+      warn("duplicate_assignment",
+        "Two assignments were returned for the same item; using the first.", a.line_item_temp_id);
+      continue;
+    }
+    assignmentFor.set(a.line_item_temp_id, a);
+  }
+
+  let itemsTotal = 0;
+
+  for (const item of parsed.line_items) {
+    const lineTotal = toCents(item.line_total);
+    itemsTotal += lineTotal;
+
+    const assignment = assignmentFor.get(item.temp_id);
+    let participants = [];
+    let weights = [];
+
+    if (assignment && assignment.member_names.length > 0) {
+      const resolved = resolve(assignment.member_names, item.temp_id);
+      const usesShares = assignment.split_type === "shares";
+      const sharesAligned =
+        usesShares && assignment.shares.length === assignment.member_names.length;
+
+      if (usesShares && !sharesAligned) {
+        warn("invalid_shares",
+          'Share weights don\'t line up with the names on "' + item.description +
+          '"; split evenly instead.', item.temp_id);
+      }
+
+      resolved.forEach(function (member, i) {
+        if (!member) return;
+        participants.push(member);
+        weights.push(sharesAligned ? assignment.shares[i] : 1);
+      });
+
+      if (usesShares && sharesAligned && !isUsableWeighting(weights)) {
+        warn("invalid_shares",
+          'Share weights on "' + item.description + '" aren\'t usable; split evenly instead.',
+          item.temp_id);
+        weights = participants.map(() => 1);
+      }
+    }
+
+    if (participants.length === 0) {
+      warn("unassigned_item",
+        '"' + item.description + '" wasn\'t assigned to anyone; split across everyone.',
+        item.temp_id);
+      participants = members;
+      weights = members.map(() => 1);
+    }
+
+    const parts = apportion(lineTotal, weights, participants.map((m) => m.id));
+    participants.forEach((m, i) => credit(m.id, parts[i]));
+  }
+
+  const subtotalCents = toCents(parsed.subtotal);
+  const remainder = subtotalCents - itemsTotal;
+
+  if (remainder > 0) {
+    const wholeBill = assignmentFor.get(WHOLE_BILL);
+    let participants = [];
+    let weights = [];
+
+    if (wholeBill && wholeBill.member_names.length > 0) {
+      const resolved = resolve(wholeBill.member_names, WHOLE_BILL);
+      const sharesAligned =
+        wholeBill.split_type === "shares" &&
+        wholeBill.shares.length === wholeBill.member_names.length;
+      resolved.forEach(function (member, i) {
+        if (!member) return;
+        participants.push(member);
+        weights.push(sharesAligned ? wholeBill.shares[i] : 1);
+      });
+      if (participants.length > 0 && !isUsableWeighting(weights)) {
+        weights = participants.map(() => 1);
+      }
+    }
+
+    if (participants.length === 0) {
+      if (parsed.line_items.length > 0) {
+        warn("subtotal_mismatch",
+          "The line items are " + money(remainder) +
+          " short of the subtotal; the difference was split across everyone.");
+      }
+      participants = members;
+      weights = members.map(() => 1);
+    }
+
+    const parts = apportion(remainder, weights, participants.map((m) => m.id));
+    participants.forEach((m, i) => credit(m.id, parts[i]));
+  } else if (remainder < 0) {
+    warn("subtotal_mismatch",
+      "The line items add up to " + money(-remainder) + " more than the stated subtotal.");
+  }
+
+  const baseTotal = Array.from(subtotalByMember.values()).reduce((a, b) => a + b, 0);
+  const extras = toCents(parsed.tax) + toCents(parsed.tip) + toCents(parsed.other_charges);
+  const ids = members.map((m) => m.id);
+
+  let extraParts;
+  if (extras === 0) extraParts = members.map(() => 0);
+  else if (baseTotal === 0) extraParts = apportion(extras, members.map(() => 1), ids);
+  else extraParts = apportion(extras, members.map((m) => subtotalByMember.get(m.id) || 0), ids);
+
+  const splits = members.map((m, i) => ({
+    memberId: m.id,
+    memberName: m.displayName,
+    amountOwed: (subtotalByMember.get(m.id) || 0) + extraParts[i],
+  }));
+
+  const totalCents = splits.reduce((s, x) => s + x.amountOwed, 0);
+  const grandTotal = toCents(parsed.grand_total);
+  if (totalCents !== grandTotal) {
+    warn("total_mismatch",
+      "Receipt total reads " + money(grandTotal) + ", but the items, tax and tip add up to " +
+      money(totalCents) + ". Check the receipt before saving.");
+  }
+
+  return { splits: splits, warnings: warnings, totalCents: totalCents };
+}
+
+/* =====================================================================
+   lib/balances.ts
+   ===================================================================== */
+
+function computeBalances(members, expenses, settlements) {
+  const net = new Map(members.map((m) => [m.id, 0]));
+  const add = (id, amount) => {
+    if (!net.has(id)) return;
+    net.set(id, (net.get(id) || 0) + amount);
+  };
+  for (const e of expenses) {
+    for (const p of e.payers) add(p.memberId, p.amountPaid);
+    for (const s of e.splits) add(s.memberId, -s.amountOwed);
+  }
+  for (const s of settlements) {
+    add(s.fromMember, s.amount);
+    add(s.toMember, -s.amount);
+  }
+  return members.map((m) => ({
+    memberId: m.id, displayName: m.displayName, net: net.get(m.id) || 0,
+  }));
+}
+
+/** Greedy: match the largest creditor with the largest debtor. */
+function simplifyDebts(balances) {
+  const byMagnitude = (a, b) =>
+    Math.abs(b.net) - Math.abs(a.net) ||
+    (a.memberId < b.memberId ? -1 : a.memberId > b.memberId ? 1 : 0);
+
+  const creditors = balances.filter((b) => b.net > 0).sort(byMagnitude);
+  const debtors = balances.filter((b) => b.net < 0).sort(byMagnitude);
+
+  const owedTotal = creditors.reduce((s, c) => s + c.net, 0);
+  const debtTotal = debtors.reduce((s, d) => s - d.net, 0);
+  if (owedTotal !== debtTotal) throw new Error("Balances don't sum to zero");
+
+  const transfers = [];
+  const remaining = new Map(balances.map((b) => [b.memberId, b.net]));
+  let ci = 0, di = 0, iterations = 0;
+  const maxIterations = 2 * (creditors.length + debtors.length) + 1;
+
+  while (ci < creditors.length && di < debtors.length) {
+    if (++iterations > maxIterations) throw new Error("failed to converge");
+    const creditor = creditors[ci], debtor = debtors[di];
+    const credit = remaining.get(creditor.memberId) || 0;
+    const debt = -(remaining.get(debtor.memberId) || 0);
+    if (credit === 0) { ci++; continue; }
+    if (debt === 0) { di++; continue; }
+    const amount = Math.min(credit, debt);
+    transfers.push({ fromMemberId: debtor.memberId, toMemberId: creditor.memberId, amount: amount });
+    remaining.set(creditor.memberId, credit - amount);
+    remaining.set(debtor.memberId, -(debt - amount));
+  }
+  return transfers;
+}
+
+/* =====================================================================
+   lib/insights.ts
+   ===================================================================== */
+
+function buildInsights(expenses, memberId) {
+  const byCategory = new Map();
+  let groupTotal = 0, yourTotal = 0, uncategorized = 0, largest = null;
+
+  for (const expense of expenses) {
+    const category = expense.category || "Other";
+    if (expense.category === null) uncategorized += 1;
+
+    const yourShare = expense.splits
+      .filter((s) => s.memberId === memberId)
+      .reduce((sum, s) => sum + s.amountOwed, 0);
+
+    groupTotal += expense.totalAmount;
+    yourTotal += yourShare;
+
+    const slice = byCategory.get(category) ||
+      { category: category, groupCents: 0, yourCents: 0, count: 0 };
+    slice.groupCents += expense.totalAmount;
+    slice.yourCents += yourShare;
+    slice.count += 1;
+    byCategory.set(category, slice);
+
+    if (!largest || expense.totalAmount > largest.cents) {
+      largest = { description: expense.description, cents: expense.totalAmount, category: category };
+    }
+  }
+
+  const order = new Map(CATEGORIES.map((c, i) => [c, i]));
+  const slices = Array.from(byCategory.values())
+    .filter((s) => s.groupCents !== 0)
+    .sort((a, b) => b.groupCents - a.groupCents ||
+      (order.get(a.category) || 0) - (order.get(b.category) || 0));
+
+  return {
+    groupTotal: groupTotal, yourTotal: yourTotal, expenseCount: expenses.length,
+    byCategory: slices, largest: largest, uncategorized: uncategorized,
+  };
+}
+
+/* =====================================================================
+   Seed data — mirrors lib/store.ts
+   ===================================================================== */
+
+let uid = 0;
+const nextId = () => "id-" + ++uid;
+
+function equalExpense(o) {
+  const parts = apportion(o.totalCents, o.participantIds.map(() => 1), o.participantIds);
+  return {
+    id: nextId(), description: o.description,
+    category: o.category === undefined ? null : o.category,
+    categorySource: o.categorySource || null,
+    totalAmount: o.totalCents, currency: "USD",
+    expenseDate: new Date().toISOString().slice(0, 10),
+    sourceType: "manual", lineItems: [],
+    payers: o.payers.map((p) => ({ memberId: p[0], amountPaid: p[1] })),
+    splits: o.participantIds.map((memberId, i) => ({
+      memberId: memberId, lineItemId: null, splitType: "equal",
+      shareValue: null, amountOwed: parts[i],
+    })),
+    createdAt: Date.now() + uid,
+  };
+}
+
+function seed() {
+  const members = [
+    { id: "mem-you", displayName: "You", isGhost: false },
+    { id: "mem-sarah", displayName: "Sarah", isGhost: false },
+    { id: "mem-john", displayName: "John", isGhost: true },
+    { id: "mem-alex", displayName: "Alex", isGhost: false },
+  ];
+  const group = {
+    id: "grp-lisbon", name: "Lisbon Trip", emoji: "🇵🇹",
+    defaultCurrency: "USD", members: members,
+  };
+  const dinner = equalExpense({
+    description: "Tasca dinner", category: null,
+    payers: [["mem-you", 12000]], participantIds: members.map((m) => m.id), totalCents: 12000,
+  });
+  const taxi = equalExpense({
+    description: "Airport taxi", category: "Transport", categorySource: "manual",
+    payers: [["mem-sarah", 4500]],
+    participantIds: ["mem-you", "mem-sarah", "mem-alex"], totalCents: 4500,
+  });
+  return {
+    groups: [group], expenses: [dinner, taxi], settlements: [],
+    activity: [
+      { id: nextId(), summary: "Lisbon Trip created", groupId: group.id, createdAt: 0 },
+      { id: nextId(), summary: "You added Tasca dinner — $120.00", groupId: group.id, createdAt: 1 },
+      { id: nextId(), summary: "Sarah added Airport taxi — $45.00", groupId: group.id, createdAt: 2 },
+    ],
+    currentMemberId: "mem-you",
+  };
+}
+
+/** The fixed receipt the app falls back to without an API key. */
+function demoReceipt(members) {
+  const names = members.map((m) => m.displayName);
+  const first = names[0] || "Everyone";
+  const second = names[1] || first;
+  return {
+    line_items: [
+      { temp_id: "i1", description: "Grilled Salmon", quantity: 1, unit_price: 28, line_total: 28 },
+      { temp_id: "i2", description: "Glass of Riesling", quantity: 2, unit_price: 11, line_total: 22 },
+      { temp_id: "i3", description: "Burrata & Sourdough", quantity: 1, unit_price: 16, line_total: 16 },
+      { temp_id: "i4", description: "Steak Frites", quantity: 1, unit_price: 34, line_total: 34 },
+      { temp_id: "i5", description: "Sparkling Water", quantity: 1, unit_price: 6, line_total: 6 },
+    ],
+    subtotal: 106, tax: 9.01, tip: 20, other_charges: 0, grand_total: 135.01,
+    assignments: [
+      { line_item_temp_id: "i1", member_names: [first], split_type: "equal", shares: [] },
+      { line_item_temp_id: "i2", member_names: [first], split_type: "equal", shares: [] },
+      { line_item_temp_id: "i3", member_names: names.slice(0, 2), split_type: "equal", shares: [] },
+      { line_item_temp_id: "i4", member_names: [second], split_type: "equal", shares: [] },
+      { line_item_temp_id: "i5", member_names: names, split_type: "equal", shares: [] },
+    ],
+    unresolved_items: [
+      { line_item_temp_id: "i5", reason: "Nobody claimed the sparkling water — split across everyone." },
+    ],
+  };
+}
+
+/* =====================================================================
+   App state
+   ===================================================================== */
+
+const state = {
+  screen: "welcome",
+  step: 0,
+  groupId: "grp-lisbon",
+  measure: "group",
+  db: seed(),
+  receipt: null,
+  busy: false,
+  error: null,
+};
+
+const esc = (s) => String(s).replace(/[&<>"']/g,
+  (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+const group = () => state.db.groups.find((g) => g.id === state.groupId);
+const expensesOf = (id) =>
+  state.db.expenses.filter((e) => e.groupId === id || !e.groupId).sort((a, b) => b.createdAt - a.createdAt);
+const nameOf = (g, id) => {
+  const m = g.members.find((x) => x.id === id);
+  return m ? m.displayName : "Someone";
+};
+
+/* Categorize anything unlabelled, the way the panel does on open. */
+function categorizePending(g) {
+  let applied = 0;
+  for (const e of state.db.expenses) {
+    if (e.category !== null || e.categorySource === "manual") continue;
+    e.category = classifyLocally(
+      [e.description].concat(e.lineItems.map((li) => li.description)).join(" "));
+    e.categorySource = "ai";
+    applied++;
+  }
+  return applied;
+}
+
+/* =====================================================================
+   Screens
+   ===================================================================== */
+
+const STEPS = [
+  { eyebrow: "Welcome", icon: "👋",
+    headline: "Split the bill, not the friendship.",
+    lede: "Track what everyone owes without the awkward maths at the end of dinner.",
+    cta: "Show me how", preview: welcomePreview },
+  { eyebrow: "Snap it", icon: "🧾",
+    headline: "Photograph the receipt. That's the hard part done.",
+    lede: "Tabby reads every line item — the salmon, the wine, the tip — so you don't type a thing.",
+    cta: "Then what?", preview: receiptPreview },
+  { eyebrow: "Say it", icon: "💬",
+    headline: "Just say who had what, in plain English.",
+    lede: "Type it or record a voice memo. Tabby matches each dish to the right person.",
+    cta: "And the maths?", preview: speechPreview },
+  { eyebrow: "Settle it", icon: "🤝",
+    headline: "Everyone pays exactly what they owe.",
+    lede: "Down to the cent, with tax and tip shared in proportion. Then we collapse it into the fewest payments.",
+    cta: "See my groups", preview: settlePreview },
+];
+
+function welcomePreview() {
+  return `<div style="width:17rem">
+    <div class="card" style="display:flex;align-items:center;gap:14px;padding:16px">
+      ${mark(46)}
+      <div>
+        <div style="font-size:18px;font-weight:800;line-height:1">Tabby</div>
+        <div style="margin-top:6px;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.14em;color:var(--teal)">Split the bill</div>
+      </div>
+    </div>
+    <div class="card card-data" style="margin:-8px 0 0 auto;width:10.5rem;padding:14px;position:relative">
+      <div class="tile-label">You're owed</div>
+      <div style="margin-top:2px;font-size:24px;font-weight:800" class="teal">$75.00</div>
+    </div>
+  </div>`;
+}
+
+function receiptPreview() {
+  const items = [["Grilled Salmon", "$28.00"], ["Glass of Riesling", "$11.00"], ["Burrata", "$16.00"]];
+  return `<div class="card" style="width:17rem;padding:16px">
+    <div class="row" style="border-bottom:1px solid rgba(42,33,28,.08);padding-bottom:10px">
+      <span style="font-size:13px;font-weight:800">Tasca do Chico</span><span style="font-size:18px">🧾</span>
+    </div>
+    <div style="margin-top:10px;display:flex;flex-direction:column;gap:8px">
+      ${items.map((it, i) => `<div class="row fade" style="font-size:13px;animation-delay:${150 + i * 130}ms">
+        <span style="color:rgba(42,33,28,.7)">${it[0]}</span>
+        <span style="font-weight:600" class="num">${it[1]}</span></div>`).join("")}
+    </div>
+  </div>`;
+}
+
+function speechPreview() {
+  return `<div style="width:17rem;position:relative">
+    <div class="card" style="padding:16px">
+      <p style="margin:0;font-size:14px;line-height:1.6;color:rgba(42,33,28,.75)">
+        “Sarah had the salmon and the wine, John and I split the burrata, split the rest evenly.”</p>
+    </div>
+    <div class="card card-data" style="position:absolute;bottom:-32px;left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:8px;padding:10px 16px">
+      <span style="width:8px;height:8px;border-radius:999px;background:var(--ginger);display:inline-block"></span>
+      <span style="font-size:13px;font-weight:700">Listening…</span>
+    </div>
+  </div>`;
+}
+
+function settlePreview() {
+  const rows = [["Sarah", "$55.41"], ["You", "$45.78"], ["John", "$33.82"]];
+  return `<div style="width:17rem;position:relative">
+    <div class="card card-data" style="padding:16px">
+      <div class="tile-label">Each person owes</div>
+      <div style="margin-top:10px;display:flex;flex-direction:column;gap:8px">
+        ${rows.map((r, i) => `<div class="row fade" style="font-size:14px;animation-delay:${120 + i * 120}ms">
+          <span>${r[0]}</span><span style="font-weight:700" class="num">${r[1]}</span></div>`).join("")}
+      </div>
+    </div>
+    <div class="card" style="position:absolute;bottom:-28px;right:-16px;display:flex;align-items:center;gap:8px;padding:8px 14px">
+      <span style="display:grid;place-items:center;width:20px;height:20px;border-radius:999px;background:var(--teal);color:#fff;font-size:11px">✓</span>
+      <span style="font-size:12px;font-weight:700">2 payments</span>
+    </div>
+  </div>`;
+}
+
+function mark(size) {
+  return `<svg width="${size}" height="${size}" viewBox="0 0 64 64" aria-hidden="true" style="flex-shrink:0">
+    <rect width="64" height="64" rx="17" fill="#1F5F5B"/>
+    <path d="M17 26 L18.5 12 L30 20 Z" fill="#D9730D"/><path d="M47 26 L45.5 12 L34 20 Z" fill="#D9730D"/>
+    <path d="M20 24 L21 16 L28.5 21 Z" fill="#F5D9B0"/><path d="M44 24 L43 16 L35.5 21 Z" fill="#F5D9B0"/>
+    <circle cx="32" cy="35" r="17" fill="#D9730D"/>
+    <path d="M23 28 q4.5 -6 9 0 M32 28 q4.5 -6 9 0" stroke="#F5D9B0" stroke-width="2.6" stroke-linecap="round" fill="none"/>
+    <path d="M23.5 36 q3.5 4 7 0 M33.5 36 q3.5 4 7 0" stroke="#2A211C" stroke-width="2.4" stroke-linecap="round" fill="none"/>
+    <path d="M30 43 L34 43 L32 46 Z" fill="#2A211C"/></svg>`;
+}
+
+function viewWelcome() {
+  const s = STEPS[state.step];
+  const last = state.step === STEPS.length - 1;
+  return `<div style="display:flex;flex-direction:column;min-height:844px;padding:24px 24px 40px">
+    <div class="progress">
+      ${STEPS.map((_, i) => `<span class="${i <= state.step ? "on" : ""}"></span>`).join("")}
+    </div>
+    <p class="sr" aria-live="polite">Step ${state.step + 1} of ${STEPS.length}</p>
+    <div style="flex:1;display:flex;align-items:center;justify-content:center;padding:32px 0">
+      <div class="fade" key="${state.step}">${s.preview()}</div>
+    </div>
+    <div style="text-align:center">
+      <span class="eyebrow"><span aria-hidden="true">${s.icon}</span>${s.eyebrow}</span>
+      <h1 class="display" style="margin-top:16px">${esc(s.headline)}</h1>
+      <p class="lede" style="margin:12px auto 0;max-width:19rem">${esc(s.lede)}</p>
+    </div>
+    <div style="margin-top:32px">
+      <button class="btn btn-primary" data-act="next">${esc(s.cta)}${last ? "" : ' <span aria-hidden="true">›››</span>'}</button>
+      ${last ? "" : '<button class="btn-ghost" data-act="skip">Skip</button>'}
+    </div>
+  </div>`;
+}
+
+function appHead() {
+  return `<div class="app-head">
+    <div class="brand" data-act="home">${mark(32)}<span class="brand-name">Tabby</span></div>
+    <button class="back" data-act="tour">How it works</button>
+  </div>`;
+}
+
+function viewHome() {
+  const me = state.db.currentMemberId;
+  const netOverall = state.db.groups.reduce((sum, g) => {
+    const b = computeBalances(g.members, expensesOf(g.id), state.db.settlements);
+    const mine = b.find((x) => x.memberId === me);
+    return sum + (mine ? mine.net : 0);
+  }, 0);
+
+  const cards = state.db.groups.map(function (g) {
+    const b = computeBalances(g.members, expensesOf(g.id), state.db.settlements);
+    const mine = b.find((x) => x.memberId === me);
+    const net = mine ? mine.net : 0;
+    return `<div class="card" style="display:flex;align-items:center;gap:16px;cursor:pointer" data-act="open" data-id="${g.id}">
+      <div style="display:grid;place-items:center;width:48px;height:48px;border-radius:16px;background:rgba(255,255,255,.7);font-size:24px">${g.emoji}</div>
+      <div style="flex:1;min-width:0">
+        <div style="font-weight:700">${esc(g.name)}</div>
+        <div style="font-size:13px" class="muted">${g.members.length} people</div>
+      </div>
+      <div style="text-align:right">
+        ${net === 0
+          ? '<span style="font-size:13px;font-weight:500" class="muted">settled</span>'
+          : `<div class="tile-label">${net > 0 ? "owed" : "you owe"}</div>
+             <div style="font-size:18px;font-weight:800" class="${net > 0 ? "teal" : "ginger"} num">${formatAbs(net)}</div>`}
+      </div></div>`;
+  }).join("");
+
+  return `<div class="app">${appHead()}
+    <div class="hero">
+      <span class="eyebrow"><span aria-hidden="true">🐈</span>${state.db.groups.length} group${state.db.groups.length === 1 ? "" : "s"}</span>
+      <h1 class="display" style="margin-top:16px">${netOverall === 0 ? "You're all square." : netOverall > 0 ? "You're owed money." : "You owe money."}</h1>
+      ${netOverall !== 0 ? `<div class="hero-figure num ${netOverall > 0 ? "teal" : "ginger"}" style="margin-top:12px">${formatAbs(netOverall)}</div>` : ""}
+      <p class="lede" style="margin:12px auto 0;max-width:17rem">${netOverall === 0
+        ? "Nothing outstanding across your groups. Enjoy it while it lasts."
+        : "Across every group you're part of."}</p>
+    </div>
+    <div class="stack">${cards}</div>
+  </div>`;
+}
+
+function viewGroup() {
+  const g = group();
+  const expenses = expensesOf(g.id);
+  const balances = computeBalances(g.members, expenses, state.db.settlements);
+  const transfers = simplifyDebts(balances);
+  const me = state.db.currentMemberId;
+  const mine = balances.find((b) => b.memberId === me);
+  const myNet = mine ? mine.net : 0;
+  const insights = buildInsights(expenses, me);
+
+  const total = state.measure === "group" ? insights.groupTotal : insights.yourTotal;
+  const rows = insights.byCategory.slice().sort((a, b) =>
+    state.measure === "group" ? b.groupCents - a.groupCents : b.yourCents - a.yourCents);
+  const peak = Math.max(1, ...rows.map((r) => state.measure === "group" ? r.groupCents : r.yourCents));
+  const top = rows[0];
+
+  return `<div class="app">${appHead()}
+    <div class="hero">
+      <span class="eyebrow"><span aria-hidden="true">${g.emoji}</span>${esc(g.name)}</span>
+      <h1 class="display" style="margin-top:16px">${myNet === 0 ? "You're all settled up." : myNet > 0 ? "You're owed" : "You owe"}</h1>
+      ${myNet !== 0 ? `<div class="hero-figure num ${myNet > 0 ? "teal" : "ginger"}" style="margin-top:8px">${formatAbs(myNet)}</div>` : ""}
+      <p class="lede" style="margin:12px auto 0;max-width:18rem">${myNet === 0
+        ? "Nothing outstanding in this group."
+        : "Split between " + esc(g.members.map((m) => m.displayName).join(", ")) + "."}</p>
+    </div>
+
+    <div>
+      <button class="btn btn-primary" data-act="receipt"><span aria-hidden="true">📸</span> Scan a receipt</button>
+      <button class="btn-ghost" data-act="add">or add it manually</button>
+    </div>
+
+    <div class="stack" style="margin-top:16px">
+      <div class="card card-data">
+        <h2 class="card-title">Balances</h2>
+        <div style="margin-top:16px;display:flex;flex-direction:column;gap:10px">
+          ${balances.map((b) => `<div class="row">
+            <span style="font-size:15px">${esc(b.displayName)}</span>
+            <span style="font-size:15px;font-weight:600" class="num ${b.net > 0 ? "teal" : b.net < 0 ? "ginger" : "muted"}">
+              ${b.net === 0 ? "settled" : b.net > 0 ? "is owed " + formatAbs(b.net) : "owes " + formatAbs(b.net)}</span>
+          </div>`).join("")}
+        </div>
+        <div style="margin-top:20px;border-radius:16px;padding:16px;background:rgba(245,217,176,.35)">
+          <h3 class="tile-label">Simplest way to settle</h3>
+          ${transfers.length === 0
+            ? '<p style="margin:8px 0 0;font-size:14px" class="muted">Nothing to settle — everyone\'s square.</p>'
+            : `<div style="margin-top:10px;display:flex;flex-direction:column;gap:6px">
+                ${transfers.map((t) => `<div style="font-size:15px">
+                  <strong>${esc(nameOf(g, t.fromMemberId))}</strong> pays
+                  <strong>${esc(nameOf(g, t.toMemberId))}</strong>
+                  <span style="font-weight:800" class="teal num">${formatCents(t.amount)}</span></div>`).join("")}
+               </div>
+               <p style="margin:12px 0 0;font-size:12px" class="muted">${transfers.length} payment${transfers.length === 1 ? "" : "s"} instead of settling every expense one by one.</p>`}
+        </div>
+      </div>
+
+      <div class="card card-data">
+        <div class="row">
+          <h2 class="card-title">Insights</h2>
+          <div class="seg" role="group" aria-label="Show spending for">
+            <button data-act="measure" data-v="group" aria-pressed="${state.measure === "group"}">Group</button>
+            <button data-act="measure" data-v="you" aria-pressed="${state.measure === "you"}">You</button>
+          </div>
+        </div>
+        <div style="margin-top:20px">
+          <div class="tile-label">${state.measure === "group" ? "Total group spend" : "Your share"}</div>
+          <div style="margin-top:4px;font-size:44px;font-weight:800;line-height:1;letter-spacing:-.03em" class="num">${formatCents(total)}</div>
+        </div>
+        <div style="margin-top:20px;display:grid;grid-template-columns:repeat(3,1fr);gap:8px">
+          <div class="tile"><div class="tile-label">Expenses</div><div class="tile-value">${insights.expenseCount}</div></div>
+          <div class="tile"><div class="tile-label">Top</div><div class="tile-value">${top ? CATEGORY_EMOJI[top.category] + " " + top.category : "—"}</div></div>
+          <div class="tile"><div class="tile-label">Biggest</div><div class="tile-value num">${insights.largest ? formatCents(insights.largest.cents) : "—"}</div></div>
+        </div>
+        <div style="margin-top:24px;display:flex;flex-direction:column;gap:14px">
+          ${rows.map(function (r) {
+            const cents = state.measure === "group" ? r.groupCents : r.yourCents;
+            const pct = total ? Math.round((cents / total) * 100) : 0;
+            return `<div>
+              <div class="row" style="font-size:15px">
+                <span><span aria-hidden="true">${CATEGORY_EMOJI[r.category]}</span> ${r.category}</span>
+                <span style="font-weight:600" class="num">${formatCents(cents)}</span></div>
+              <div style="margin-top:6px;display:flex;align-items:center;gap:8px">
+                <div class="bar-track"><div class="bar-fill" style="width:${Math.max(2, (cents / peak) * 100)}%"></div></div>
+                <span style="width:36px;text-align:right;font-size:12px" class="muted num">${pct}%</span></div>
+              <div style="margin-top:4px;font-size:12px" class="muted">${r.count} expense${r.count === 1 ? "" : "s"}${
+                state.measure === "group" && r.yourCents > 0 ? " · your share " + formatCents(r.yourCents) : ""}</div>
+            </div>`;
+          }).join("")}
+        </div>
+        <p style="margin:16px 0 0;font-size:12px" class="muted">Categorized by keyword — the live app sends descriptions and receipt line items to Claude.</p>
+      </div>
+
+      <div class="card card-data">
+        <h2 class="card-title">Expenses</h2>
+        <div class="divide" style="margin-top:12px">
+          ${expenses.map((e) => `<div style="display:flex;align-items:flex-start;gap:12px;padding:12px 0">
+            <div style="display:grid;place-items:center;width:40px;height:40px;border-radius:12px;background:rgba(245,217,176,.4);font-size:16px;flex-shrink:0">${e.category ? CATEGORY_EMOJI[e.category] : "🧾"}</div>
+            <div style="flex:1;min-width:0">
+              <div style="font-weight:600">${esc(e.description)}</div>
+              <div style="font-size:12px" class="muted">${e.category || "Uncategorized"} · ${esc(e.payers.map((p) => nameOf(g, p.memberId)).join(" & "))} paid${e.lineItems.length ? " · " + e.lineItems.length + " items" : ""}</div>
+            </div>
+            <div style="font-weight:700;flex-shrink:0" class="num">${formatCents(e.totalAmount)}</div>
+          </div>`).join("")}
+        </div>
+      </div>
+
+      <div class="card">
+        <h2 class="card-title">Members</h2>
+        <div style="margin-top:16px;display:flex;flex-wrap:wrap;gap:8px">
+          ${g.members.map((m) => `<span class="chip ${m.isGhost ? "chip-ghost" : "chip-real"}">${esc(m.displayName)}${m.isGhost ? ' <span style="font-size:10px;opacity:.6">ghost</span>' : ""}</span>`).join("")}
+        </div>
+      </div>
+
+      <div class="card">
+        <h2 class="card-title">Activity</h2>
+        <div style="margin-top:16px;display:flex;flex-direction:column;gap:10px">
+          ${state.db.activity.slice().sort((a, b) => b.createdAt - a.createdAt).map((a) => `<div style="display:flex;gap:10px;font-size:14px">
+            <span style="margin-top:6px;width:6px;height:6px;border-radius:999px;background:var(--ginger);flex-shrink:0"></span>
+            <span style="color:rgba(42,33,28,.65)">${esc(a.summary)}</span></div>`).join("")}
+        </div>
+      </div>
+    </div>
+  </div>`;
+}
+
+function viewAdd() {
+  const g = group();
+  return `<div class="app">${appHead()}
+    <button class="back" data-act="open" data-id="${g.id}">← ${esc(g.name)}</button>
+    <div style="margin-top:12px">
+      <h1 class="card-title" style="font-size:26px">Add an expense</h1>
+      <p class="lede" style="margin-top:6px;font-size:14px">Leave the category on Auto and Tabby will work it out.</p>
+    </div>
+    <div class="card" style="margin-top:20px">
+      <div class="stack">
+        <div><label class="label" for="f-desc">What was it?</label>
+          <input class="field" id="f-desc" placeholder="Groceries, cab, tickets…"></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+          <div><label class="label" for="f-amt">Amount</label>
+            <input class="field" id="f-amt" inputmode="decimal" placeholder="0.00"></div>
+          <div><label class="label" for="f-cat">Category</label>
+            <select class="field" id="f-cat">
+              <option value="">✨ Auto</option>
+              ${CATEGORIES.map((c) => `<option value="${c}">${CATEGORY_EMOJI[c]} ${c}</option>`).join("")}
+            </select></div>
+        </div>
+        <div><label class="label" for="f-payer">Who paid?</label>
+          <select class="field" id="f-payer">
+            ${g.members.map((m) => `<option value="${m.id}">${esc(m.displayName)}</option>`).join("")}
+          </select></div>
+        <div><span class="label">Split equally between</span>
+          <div style="display:flex;flex-wrap:wrap;gap:8px" id="f-people">
+            ${g.members.map((m) => `<button class="person" data-act="who" data-id="${m.id}" aria-pressed="true">${esc(m.displayName)}</button>`).join("")}
+          </div></div>
+        ${state.error ? `<p style="margin:0;font-size:14px" class="ginger">${esc(state.error)}</p>` : ""}
+        <button class="btn btn-primary" data-act="save-manual">Save expense</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+function viewReceipt() {
+  const g = group();
+  const r = state.receipt;
+
+  if (!r || r.stage === "capture") {
+    return `<div class="app">${appHead()}
+      <button class="back" data-act="open" data-id="${g.id}">← ${esc(g.name)}</button>
+      <div style="margin-top:12px">
+        <h1 class="card-title" style="font-size:26px">Scan a receipt</h1>
+        <p class="lede" style="margin-top:6px;font-size:14px">Photograph the bill, say who had what, and review before it saves.</p>
+      </div>
+      <div class="stack" style="margin-top:20px">
+        <div class="card" style="text-align:center;padding:40px 20px">
+          <div style="font-size:36px">🧾</div>
+          <div style="margin-top:12px;font-weight:600">Photograph the receipt</div>
+          <div style="margin-top:4px;font-size:14px" class="muted">Uses a sample bill in this prototype</div>
+        </div>
+        <div class="card">
+          <label class="label" for="f-instr">Who had what?</label>
+          <textarea class="field" id="f-instr" rows="3" style="resize:none"
+            placeholder="Sarah had the salmon and the wine, John and I split the app, split the rest evenly"></textarea>
+          <p style="margin:12px 0 0;font-size:12px" class="muted">The live app also takes a voice memo here.</p>
+        </div>
+        <button class="btn btn-primary" data-act="parse" ${state.busy ? "disabled" : ""}>
+          ${state.busy ? "Reading the receipt…" : "Split it"}</button>
+      </div>
+    </div>`;
+  }
+
+  const result = computeFinalSplits(r.parsed, g.members);
+  const itemRows = r.parsed.line_items.map((i) => ({
+    tempId: i.temp_id, label: i.description, cents: toCents(i.line_total),
+  }));
+  const extras = toCents(r.parsed.tax) + toCents(r.parsed.tip) + toCents(r.parsed.other_charges);
+
+  return `<div class="app">${appHead()}
+    <button class="back" data-act="open" data-id="${g.id}">← ${esc(g.name)}</button>
+    <div style="margin-top:12px">
+      <h1 class="card-title" style="font-size:26px">Review the split</h1>
+    </div>
+    <div class="stack" style="margin-top:20px">
+      <div class="notice notice-sample"><strong>Sample receipt.</strong> The live app reads a real photo here — the review and maths below are the real thing either way.</div>
+
+      ${result.warnings.length ? `<div class="notice notice-warn">
+        <h3 style="margin:0;font-size:14px;font-weight:800" class="ginger">Worth a look before you save</h3>
+        <div style="margin-top:8px;display:flex;flex-direction:column;gap:6px">
+          ${result.warnings.map((w) => `<div style="font-size:14px;color:rgba(42,33,28,.7)">• ${esc(w.message)}</div>`).join("")}
+        </div></div>` : ""}
+
+      <div class="card">
+        <div class="stack">
+          <div><label class="label" for="f-rdesc">Description</label>
+            <input class="field" id="f-rdesc" value="${esc(r.description)}" data-act="rdesc"></div>
+          <div><label class="label" for="f-rpayer">Who paid?</label>
+            <select class="field" id="f-rpayer" data-act="rpayer">
+              ${g.members.map((m) => `<option value="${m.id}"${m.id === r.payerId ? " selected" : ""}>${esc(m.displayName)}</option>`).join("")}
+            </select></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2 class="card-title">Items</h2>
+        <p style="margin:6px 0 0;font-size:12px" class="muted">Tap a name to add or remove them from an item.</p>
+        <div style="margin-top:16px;display:flex;flex-direction:column;gap:16px">
+          ${itemRows.map(function (row) {
+            const a = r.parsed.assignments.find((x) => x.line_item_temp_id === row.tempId);
+            const flagged = result.warnings.some((w) => w.lineItemTempId === row.tempId);
+            return `<div style="border-radius:16px;padding:12px;${flagged
+              ? "background:rgba(217,115,13,.05);box-shadow:0 0 0 1px rgba(217,115,13,.25)"
+              : "background:var(--canvas)"}">
+              <div class="row"><span style="font-weight:600">${esc(row.label)}</span>
+                <span style="font-weight:600" class="num">${formatCents(row.cents)}</span></div>
+              <div style="margin-top:10px;display:flex;flex-wrap:wrap;gap:6px">
+                ${g.members.map(function (m) {
+                  const on = a && a.member_names.some((n) =>
+                    n.trim().toLowerCase() === m.displayName.trim().toLowerCase());
+                  return `<button class="person" data-act="toggle" data-item="${row.tempId}" data-name="${esc(m.displayName)}" aria-pressed="${!!on}">${esc(m.displayName)}</button>`;
+                }).join("")}
+              </div></div>`;
+          }).join("")}
+        </div>
+        ${extras !== 0 ? `<p style="margin:16px 0 0;padding-top:12px;border-top:1px solid rgba(42,33,28,.08);font-size:14px" class="muted">Tax, tip and fees (${formatCents(extras)}) are spread in proportion to what each person ate.</p>` : ""}
+      </div>
+
+      <div class="card card-data">
+        <h2 class="card-title">Each person owes</h2>
+        <div style="margin-top:16px;display:flex;flex-direction:column;gap:10px">
+          ${result.splits.map((s) => `<div class="row"><span style="font-size:15px">${esc(s.memberName)}</span>
+            <span style="font-size:15px;font-weight:600" class="num">${formatCents(s.amountOwed)}</span></div>`).join("")}
+        </div>
+        <div class="row" style="margin-top:16px;padding-top:12px;border-top:1px solid rgba(42,33,28,.08)">
+          <span style="font-weight:800">Total</span>
+          <span style="font-weight:800" class="teal num">${formatCents(result.totalCents)}</span></div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 2fr;gap:12px">
+        <button class="btn btn-secondary" data-act="recapture">Back</button>
+        <button class="btn btn-primary" data-act="save-receipt">Save expense</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+/* =====================================================================
+   Render + events
+   ===================================================================== */
+
+const viewEl = document.getElementById("view");
+const screenEl = document.getElementById("screen");
+
+function render(keepScroll) {
+  const y = screenEl.scrollTop;
+  const views = {
+    welcome: viewWelcome, home: viewHome, group: viewGroup,
+    add: viewAdd, receipt: viewReceipt,
+  };
+  viewEl.innerHTML = views[state.screen]();
+  screenEl.scrollTop = keepScroll ? y : 0;
+}
+
+function go(screen) {
+  state.screen = screen;
+  state.error = null;
+  render(false);
+}
+
+document.addEventListener("click", function (event) {
+  const el = event.target.closest("[data-act]");
+  if (!el) return;
+  const act = el.dataset.act;
+  const g = group();
+
+  if (act === "next") {
+    if (state.step < STEPS.length - 1) { state.step++; render(false); }
+    else { categorizePending(g); go("home"); }
+  } else if (act === "skip") {
+    categorizePending(g); go("home");
+  } else if (act === "tour") {
+    state.step = 0; go("welcome");
+  } else if (act === "home") {
+    go("home");
+  } else if (act === "open") {
+    state.groupId = el.dataset.id;
+    categorizePending(group());
+    go("group");
+  } else if (act === "add") {
+    go("add");
+  } else if (act === "receipt") {
+    state.receipt = null; go("receipt");
+  } else if (act === "measure") {
+    state.measure = el.dataset.v; render(true);
+  } else if (act === "who") {
+    el.setAttribute("aria-pressed", el.getAttribute("aria-pressed") === "true" ? "false" : "true");
+  } else if (act === "recapture") {
+    state.receipt = null; render(false);
+
+  } else if (act === "parse") {
+    state.busy = true; render(true);
+    setTimeout(function () {
+      state.busy = false;
+      state.receipt = {
+        stage: "review", parsed: demoReceipt(g.members),
+        payerId: g.members[0].id, description: "Receipt",
+      };
+      render(false);
+    }, 900);
+
+  } else if (act === "toggle") {
+    const r = state.receipt;
+    const tempId = el.dataset.item, name = el.dataset.name;
+    const idx = r.parsed.assignments.findIndex((a) => a.line_item_temp_id === tempId);
+    if (idx === -1) {
+      r.parsed.assignments.push({
+        line_item_temp_id: tempId, member_names: [name], split_type: "equal", shares: [],
+      });
+    } else {
+      const existing = r.parsed.assignments[idx];
+      const has = existing.member_names.indexOf(name) !== -1;
+      const names = has
+        ? existing.member_names.filter((n) => n !== name)
+        : existing.member_names.concat([name]);
+      // Dropping to nobody falls back to everyone with a warning — keep the
+      // last person instead of surprising the host.
+      if (names.length === 0) return;
+      r.parsed.assignments[idx] = {
+        line_item_temp_id: tempId, member_names: names, split_type: "equal", shares: [],
+      };
+    }
+    render(true);
+
+  } else if (act === "save-manual") {
+    const desc = document.getElementById("f-desc").value.trim();
+    const amount = document.getElementById("f-amt").value.trim();
+    const chosen = Array.from(document.querySelectorAll('#f-people [aria-pressed="true"]'))
+      .map((b) => b.dataset.id);
+    const payerId = document.getElementById("f-payer").value;
+    const category = document.getElementById("f-cat").value;
+
+    if (!desc) { state.error = "Give the expense a description."; return render(true); }
+    if (!chosen.length) { state.error = "Pick at least one person to split between."; return render(true); }
+    let cents;
+    try { cents = toCents(amount); }
+    catch (e) { state.error = "That amount doesn't look like a number."; return render(true); }
+    if (cents <= 0) { state.error = "The amount has to be more than zero."; return render(true); }
+
+    const expense = equalExpense({
+      description: desc, category: category || null,
+      categorySource: category ? "manual" : null,
+      payers: [[payerId, cents]], participantIds: chosen, totalCents: cents,
+    });
+    expense.groupId = g.id;
+    state.db.expenses.push(expense);
+    state.db.activity.push({
+      id: nextId(), groupId: g.id, createdAt: Date.now(),
+      summary: nameOf(g, payerId) + " added " + desc,
+    });
+    categorizePending(g);
+    go("group");
+
+  } else if (act === "save-receipt") {
+    const r = state.receipt;
+    const result = computeFinalSplits(r.parsed, g.members);
+    const desc = document.getElementById("f-rdesc").value.trim() || "Receipt";
+    const payerId = document.getElementById("f-rpayer").value;
+
+    state.db.expenses.push({
+      id: nextId(), groupId: g.id, description: desc,
+      category: null, categorySource: null,
+      totalAmount: result.totalCents, currency: "USD",
+      expenseDate: new Date().toISOString().slice(0, 10),
+      sourceType: "receipt_ai",
+      lineItems: r.parsed.line_items.map((i) => ({
+        id: nextId(), description: i.description, quantity: i.quantity,
+        unitPrice: toCents(i.unit_price), lineTotal: toCents(i.line_total),
+      })),
+      payers: [{ memberId: payerId, amountPaid: result.totalCents }],
+      splits: result.splits.map((s) => ({
+        memberId: s.memberId, lineItemId: null, splitType: "exact",
+        shareValue: null, amountOwed: s.amountOwed,
+      })),
+      createdAt: Date.now(),
+    });
+    state.db.activity.push({
+      id: nextId(), groupId: g.id, createdAt: Date.now(),
+      summary: nameOf(g, payerId) + " added " + desc + " from a receipt",
+    });
+    state.receipt = null;
+    categorizePending(g);
+    go("group");
+  }
+});
+
+// Keep typed values across the re-renders that editing triggers.
+document.addEventListener("input", function (event) {
+  if (!state.receipt) return;
+  if (event.target.dataset.act === "rdesc") state.receipt.description = event.target.value;
+});
+document.addEventListener("change", function (event) {
+  if (!state.receipt) return;
+  if (event.target.dataset.act === "rpayer") state.receipt.payerId = event.target.value;
+});
+
+document.getElementById("restart").addEventListener("click", function () {
+  uid = 0;
+  Object.assign(state, {
+    screen: "welcome", step: 0, groupId: "grp-lisbon", measure: "group",
+    db: seed(), receipt: null, busy: false, error: null,
+  });
+  render(false);
+});
+
+render(false);
+</script>
