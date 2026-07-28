@@ -65,7 +65,7 @@ export function InsightsPanel({
   if (insights.expenseCount === 0) {
     return (
       <section className="card">
-        <h2 className="font-bold">Insights</h2>
+        <h2 className="card-title">Insights</h2>
         <p className="mt-2 text-sm text-ink/50">
           Add a few expenses and Tabby will show what the group spends most on.
         </p>
@@ -74,9 +74,9 @@ export function InsightsPanel({
   }
 
   return (
-    <section className="card">
+    <section className="card card-data">
       <div className="flex items-center justify-between gap-3">
-        <h2 className="font-bold">Insights</h2>
+        <h2 className="card-title">Insights</h2>
         {/* Filter row, above the chart. */}
         <div
           role="group"

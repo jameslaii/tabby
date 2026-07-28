@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getGroup } from "../../../../lib/store";
-import { ReceiptFlow } from "../../../../components/ReceiptFlow";
+import { getGroup } from "../../../../../lib/store";
+import { ReceiptFlow } from "../../../../../components/ReceiptFlow";
 
 export default async function ReceiptPage({
   params,
@@ -14,12 +14,12 @@ export default async function ReceiptPage({
 
   return (
     <main className="space-y-5">
-      <Link href={`/groups/${id}`} className="text-sm text-teal">
+      <Link href={`/groups/${id}`} className="inline-block text-sm font-semibold text-ink/45 transition hover:text-ink/70">
         ← {group.name}
       </Link>
       <div>
-        <h1 className="text-xl font-bold">Scan a receipt</h1>
-        <p className="mt-1 text-sm text-ink/55">
+        <h1 className="display-sm">Scan a receipt</h1>
+        <p className="lede mt-1.5 text-[14px]">
           Photograph the bill, say who had what, and review before it saves.
         </p>
       </div>

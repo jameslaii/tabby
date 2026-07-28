@@ -57,6 +57,32 @@ first in the array. Here a discrepancy has nowhere to hide: it surfaces as a
 warning on the review screen instead. `docs/TEST_PLAN.md` has the six
 reproduced failures; `tests/splits.test.ts` pins each one.
 
+## The visual system
+
+Defined in `app/globals.css` as a handful of component classes, so screens
+mostly inherit it rather than restating it.
+
+- **Surface** — a fixed warm gradient wash (peach top-left, blush top-right,
+  cooling to white) with a dotted texture that fades out by mid-screen, so it
+  never sits behind a column of figures.
+- **Cards** — frosted glass (`backdrop-filter`, 24px radius, no hard border).
+  `.card-data` raises the opacity for any panel carrying money; translucency
+  behind a balance costs contrast, and balances are the one thing that must
+  never be ambiguous. Under `prefers-reduced-transparency` the glass goes fully
+  opaque rather than merely less blurred.
+- **Type** — `.display` for hero headlines (clamped 30–38px, weight 800,
+  leading 1.06), `.card-title` at 17px for section headings inside cards. Big
+  type is reserved for the one hero moment per screen; card headings must not
+  compete with it.
+- **Buttons** — `.btn-primary` is black, with `.btn-ghost` as the quiet
+  secondary beneath it. That keeps ginger meaningful: it stays an accent on
+  small elements instead of becoming the loudest thing on every screen.
+- **`.eyebrow`** — the small outlined pill that sits above a headline.
+
+`/welcome` is a four-step onboarding flow in the hero genre — one idea per
+screen, a floating glass preview, and a single black CTA. It's also where a
+first-run user lands when they have no groups yet.
+
 ## Insights
 
 Every expense is classified into one of ten fixed categories — Dining,

@@ -292,7 +292,7 @@ export function ReceiptFlow({
       </div>
 
       <section className="card">
-        <h2 className="mb-1 font-bold">Items</h2>
+        <h2 className="card-title mb-1">Items</h2>
         <p className="mb-4 text-xs text-ink/45">
           Tap a name to add or remove them from an item.
         </p>
@@ -380,7 +380,7 @@ export function ReceiptFlow({
       </section>
 
       <section className="card">
-        <h2 className="mb-4 font-bold">Each person owes</h2>
+        <h2 className="card-title mb-4">Each person owes</h2>
         <ul className="space-y-2.5">
           {result.splits.map((s) => (
             <li key={s.memberId} className="flex items-center justify-between">
