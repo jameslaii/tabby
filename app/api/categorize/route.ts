@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { classifyBatch, isConfigured, type ClassifyInput } from "../../../lib/classify";
 import { buildInsights } from "../../../lib/insights";
+import { readJson } from "../../../lib/http";
 import {
   currentMemberId,
   getExpenses,
@@ -17,8 +18,12 @@ import {
  * so opening the panel again costs nothing.
  */
 export async function POST(request: Request) {
-  const { groupId } = (await request.json()) ?? {};
-  const group = getGroup(String(groupId));
+  const body = await readJson(request);
+  if (body === null) {
+    return NextResponse.json({ error: "Expected a JSON body." }, { status: 400 });
+  }
+
+  const group = getGroup(String(body.groupId));
   if (!group) {
     return NextResponse.json({ error: "Group not found." }, { status: 404 });
   }
@@ -37,7 +42,7 @@ export async function POST(request: Request) {
     return NextResponse.json({
       applied,
       usedAi: isConfigured(),
-      insights: buildInsights(getExpenses(group.id), currentMemberId()),
+      insights: buildInsights(getExpenses(group.id), currentMemberId(group.id)),
     });
   } catch (error) {
     return NextResponse.json(

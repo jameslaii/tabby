@@ -30,18 +30,27 @@ interface Db {
   expenses: Expense[];
   settlements: Settlement[];
   activity: ActivityEntry[];
-  /** The signed-in user, stubbed until Supabase auth is wired up. */
-  currentMemberId: string;
+  /**
+   * The signed-in user, stubbed until Supabase auth is wired up.
+   *
+   * A *user* id, not a member id. Every group holds its own `group_members`
+   * row for this person, so identity has to sit one level above membership:
+   * holding a member id here made "me" mean whichever group was created last.
+   */
+  currentUserId: string;
 }
 
 const id = () => crypto.randomUUID();
 
+/** The stubbed signed-in account. One `users` row, present in every group. */
+export const DEMO_USER_ID = "usr-you";
+
 function seed(): Db {
   const members: GroupMember[] = [
-    { id: "mem-you", displayName: "You", isGhost: false },
-    { id: "mem-sarah", displayName: "Sarah", isGhost: false },
-    { id: "mem-john", displayName: "John", isGhost: true },
-    { id: "mem-alex", displayName: "Alex", isGhost: false },
+    { id: "mem-you", displayName: "You", userId: DEMO_USER_ID, isGhost: false },
+    { id: "mem-sarah", displayName: "Sarah", userId: "usr-sarah", isGhost: false },
+    { id: "mem-john", displayName: "John", userId: null, isGhost: true },
+    { id: "mem-alex", displayName: "Alex", userId: "usr-alex", isGhost: false },
   ];
 
   const group: Group = {
@@ -102,7 +111,7 @@ function seed(): Db {
         createdAt: taxi.createdAt,
       },
     ],
-    currentMemberId: "mem-you",
+    currentUserId: DEMO_USER_ID,
   };
 }
 
@@ -136,8 +145,21 @@ export function getActivity(groupId: string): ActivityEntry[] {
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 
-export function currentMemberId(): string {
-  return db.currentMemberId;
+export function currentUserId(): string {
+  return db.currentUserId;
+}
+
+/**
+ * The signed-in user's member row *in this group*, or null if they aren't in
+ * it. Null is a real answer — you can hold a link to a group you don't belong
+ * to — and callers show group totals without a personal position rather than
+ * silently reporting zero.
+ */
+export function currentMemberId(groupId: string): string | null {
+  const member = getGroup(groupId)?.members.find(
+    (m) => m.userId === db.currentUserId,
+  );
+  return member?.id ?? null;
 }
 
 // ---- Writes ------------------------------------------------------------
@@ -337,7 +359,12 @@ export function addMember(groupId: string, displayName: string): GroupMember {
     throw new Error(`This group already has someone called "${trimmed}".`);
   }
 
-  const member: GroupMember = { id: id(), displayName: trimmed, isGhost: true };
+  const member: GroupMember = {
+    id: id(),
+    displayName: trimmed,
+    userId: null,
+    isGhost: true,
+  };
   group.members.push(member);
   logActivity({
     groupId,
@@ -354,10 +381,16 @@ export function createGroup(name: string, emoji: string): Group {
     name: name.trim() || "New group",
     emoji: emoji || "🐈",
     defaultCurrency: "USD",
-    members: [{ id: id(), displayName: "You", isGhost: false }],
+    members: [
+      {
+        id: id(),
+        displayName: "You",
+        userId: db.currentUserId,
+        isGhost: false,
+      },
+    ],
   };
   db.groups.push(group);
-  db.currentMemberId = group.members[0].id;
   logActivity({
     groupId: group.id,
     action: "group_created",

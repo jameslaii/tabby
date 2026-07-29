@@ -4,6 +4,14 @@ import type { Category } from "./categories";
 export interface GroupMember {
   id: string;
   displayName: string;
+  /**
+   * The account behind this member, or null for a ghost.
+   *
+   * Mirrors `group_members.user_id`. Member ids are per-group; the user id is
+   * what identifies the same person across groups, which is why "me" resolves
+   * through this rather than being held as a single member id.
+   */
+  userId: string | null;
   isGhost: boolean;
 }
 

@@ -21,16 +21,16 @@ export default async function HomePage({
   // First run with nothing to show: go straight to the tour.
   if (groups.length === 0 && !isNew) redirect("/welcome");
 
-  const me = currentMemberId();
-
   // The one figure the screen leads with: the viewer's overall position.
+  // "Me" is resolved per group — the same person holds a different member row
+  // in each one, so a single id can't stand in for all of them.
   const netOverall = groups.reduce((sum, group) => {
     const balances = computeBalances(
       group.members,
       getExpenses(group.id),
       getSettlements(group.id),
     );
-    return sum + balanceFor(balances, me);
+    return sum + balanceFor(balances, currentMemberId(group.id));
   }, 0);
 
   return (
@@ -70,7 +70,7 @@ export default async function HomePage({
             getExpenses(group.id),
             getSettlements(group.id),
           );
-          const net = balanceFor(balances, me);
+          const net = balanceFor(balances, currentMemberId(group.id));
 
           return (
             <Link key={group.id} href={`/groups/${group.id}`} className="block">

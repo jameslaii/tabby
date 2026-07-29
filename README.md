@@ -11,14 +11,18 @@ which item*; the app does every cent of the arithmetic.
 ```bash
 npm install
 npm run dev          # http://localhost:3000
-npm test             # 42 tests over the money paths
+npm test             # 65 tests over the money paths
+npm run typecheck    # tsc --noEmit; `next build` skips tests/
 ```
 
 It runs with no configuration. Without an API key the receipt flow returns a
 fixed sample receipt so the review-and-edit screen is still exercisable — the
 splitting, warnings and math are the real code either way.
 
-To read real photos, set `ANTHROPIC_API_KEY` in `.env.local`.
+To read real photos, copy `.env.example` to `.env.local` and set
+`ANTHROPIC_API_KEY`.
+
+CI runs typecheck, tests and build on every pull request.
 
 ## What's here
 
@@ -32,6 +36,7 @@ To read real photos, set `ANTHROPIC_API_KEY` in `.env.local`.
 | `lib/insights.ts` | Spend aggregation for the insights panel |
 | `lib/parseReceipt.ts` | The Claude vision + Structured Outputs call |
 | `lib/store.ts` | In-memory data layer, shaped 1:1 to `supabase/schema.sql` |
+| `lib/http.ts` | Request-body parsing and the upload size ceiling |
 | `app/` | Next.js App Router pages, server actions, parse API route |
 | `supabase/schema.sql` | Postgres schema with RLS policies and sum-integrity triggers |
 | `docs/TEST_PLAN.md` | Coverage analysis this build was driven from |
@@ -109,13 +114,27 @@ colour; identity comes from the label and emoji instead.
 
 ## Not done yet
 
-- **Auth.** There is no login; the app acts as a fixed demo member. Supabase
-  auth is the next step, and `supabase/schema.sql` already carries the RLS
-  policies it needs.
+- **Editing and deleting an expense.** Once saved, an expense is permanent —
+  there is no correction path for a typo'd total or a wrong payer, and stored
+  line items are never shown again after the review screen. The largest
+  functional gap.
+- **Auth.** There is no login; `lib/store.ts` holds one stubbed user id and
+  every group carries a `group_members` row pointing at it. Supabase auth is
+  the next step, and `supabase/schema.sql` already carries the RLS policies it
+  needs — swapping `currentUserId()` for `auth.uid()` is most of the job.
 - **Persistence.** `lib/store.ts` is in-memory and resets on restart. It's
   written against the same shape as the schema, so it swaps for a Supabase
-  client function by function.
-- **Multi-currency.** Amounts are USD-labelled throughout; no conversion. The
-  exchange-rate source is still an open decision in the handover.
+  client function by function. Note this also rules out deploying to a
+  serverless host as-is: state would reset per instance.
+- **Multi-currency.** Amounts are USD-labelled throughout; no conversion,
+  despite `Group.defaultCurrency` existing. The exchange-rate source is still
+  an open decision.
 - **Multi-payer entry.** The data model supports several payers per expense and
   balances compute correctly from it, but the manual-entry form only offers one.
+- **Prototype drift.** `docs/prototype.html` re-implements the money logic so it
+  can run as a static page. Nothing asserts the two agree; treat `lib/` as the
+  source of truth and re-port when the maths changes.
+- **Dependency advisories.** `npm audit` reports three high-severity issues in
+  `postcss` and `sharp`, both reached only through Next's own dependency tree.
+  16.2.12 is the current release, so there is nothing to upgrade to yet —
+  `npm audit fix --force` "resolves" them by downgrading to Next 9.

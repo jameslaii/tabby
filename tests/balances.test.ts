@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { computeBalances, simplifyDebts, type Balance } from "../lib/balances";
 import type { Expense, GroupMember, Settlement } from "../lib/types";
+import { member } from "./helpers";
 
 const members: GroupMember[] = [
-  { id: "a", displayName: "Ana", isGhost: false },
-  { id: "b", displayName: "Ben", isGhost: false },
-  { id: "c", displayName: "Cleo", isGhost: false },
+  member("a", "Ana"),
+  member("b", "Ben"),
+  member("c", "Cleo"),
 ];
 
 function expense(
@@ -17,6 +18,7 @@ function expense(
     groupId: "g1",
     description: "Test",
     category: null,
+    categorySource: null,
     totalAmount: splits.reduce((s, [, amount]) => s + amount, 0),
     currency: "USD",
     expenseDate: "2026-07-27",

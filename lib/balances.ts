@@ -15,8 +15,9 @@ export interface Transfer {
 }
 
 /**
- * Net position per member, derived from expenses and settlements at read time
- * (HANDOVER.md: balances are computed, never stored).
+ * Net position per member, derived from expenses and settlements at read time.
+ * Balances are computed, never stored — a stored balance is a second source of
+ * truth that can disagree with the expenses it came from.
  *
  * net = everything you paid − everything you owe.
  * A settlement is a payment: it raises the sender's net and lowers the
@@ -122,10 +123,16 @@ export function simplifyDebts(balances: Balance[]): Transfer[] {
   return transfers;
 }
 
-/** What one member owes or is owed, for the "you" line at the top of a group. */
+/**
+ * What one member owes or is owed, for the "you" line at the top of a group.
+ *
+ * A null member — the viewer isn't in this group — is flat zero, the same as a
+ * member who happens to be square.
+ */
 export function balanceFor(
   balances: Balance[],
-  memberId: string,
+  memberId: string | null,
 ): Cents {
+  if (memberId === null) return 0;
   return balances.find((b) => b.memberId === memberId)?.net ?? 0;
 }

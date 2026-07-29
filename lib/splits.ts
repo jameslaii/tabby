@@ -11,9 +11,10 @@ import {
 /**
  * Turn Claude's item-to-person mapping into exact per-person amounts.
  *
- * The division of labour from HANDOVER.md holds: the model decides *who gets
- * which item*, this function does every cent of arithmetic. What's changed
- * from the original draft is the failure behaviour.
+ * The division of labour is the point: the model decides *who gets which
+ * item*, this function does every cent of arithmetic. You never want an LLM
+ * rounding your friends' money. What's changed from the original draft is the
+ * failure behaviour.
  *
  * The draft ended with a "penny drift" correction that added
  * `grand_total - sum(splits)` to whoever owed the most. That guaranteed the

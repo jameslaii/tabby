@@ -1,6 +1,10 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { computeBalances, simplifyDebts } from "../../../../lib/balances";
+import {
+  balanceFor,
+  computeBalances,
+  simplifyDebts,
+} from "../../../../lib/balances";
 import { formatAbs, formatCents } from "../../../../lib/money";
 import {
   currentMemberId,
@@ -27,8 +31,8 @@ export default async function GroupPage({
   const settlements = getSettlements(id);
   const balances = computeBalances(group.members, expenses, settlements);
   const transfers = simplifyDebts(balances);
-  const me = currentMemberId();
-  const myNet = balances.find((b) => b.memberId === me)?.net ?? 0;
+  const me = currentMemberId(id);
+  const myNet = balanceFor(balances, me);
   const nameOf = (memberId: string) =>
     group.members.find((m) => m.id === memberId)?.displayName ?? "Someone";
 
@@ -42,11 +46,13 @@ export default async function GroupPage({
           {group.name}
         </span>
         <h1 className="display mt-4 text-balance">
-          {myNet === 0
-            ? "You're all settled up."
-            : myNet > 0
-              ? "You're owed"
-              : "You owe"}
+          {me === null
+            ? "You're not in this group."
+            : myNet === 0
+              ? "You're all settled up."
+              : myNet > 0
+                ? "You're owed"
+                : "You owe"}
         </h1>
         {myNet !== 0 && (
           <div
@@ -58,9 +64,11 @@ export default async function GroupPage({
           </div>
         )}
         <p className="lede mx-auto mt-3 max-w-[18rem] text-balance">
-          {myNet === 0
-            ? "Nothing outstanding in this group."
-            : `Split between ${group.members.map((m) => m.displayName).join(", ")}.`}
+          {me === null
+            ? "You can see what everyone owes, but none of it is yours."
+            : myNet === 0
+              ? "Nothing outstanding in this group."
+              : `Split between ${group.members.map((m) => m.displayName).join(", ")}.`}
         </p>
       </section>
 

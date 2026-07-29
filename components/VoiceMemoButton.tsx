@@ -3,8 +3,8 @@
 import { useEffect, useRef, useState } from "react";
 
 /**
- * Voice memo via the Web Speech API — browser-native and free, which is the
- * MVP choice in HANDOVER.md. It's Chrome/Safari-only, so the button hides
+ * Voice memo via the Web Speech API — browser-native and free, which is what
+ * makes it the MVP choice. It's Chrome/Safari-only, so the button hides
  * itself where the API is missing rather than offering something that won't
  * work. Whisper remains the fallback if accents or noise prove to be a
  * problem in real use; that decision needs real recordings first.

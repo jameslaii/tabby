@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { computeFinalSplits } from "../lib/splits";
 import type { GroupMember, ParsedReceipt } from "../lib/types";
+import { member } from "./helpers";
 
 const members: GroupMember[] = [
-  { id: "m1", displayName: "Sarah", isGhost: false },
-  { id: "m2", displayName: "John", isGhost: false },
-  { id: "m3", displayName: "Alex", isGhost: false },
+  member("m1", "Sarah"),
+  member("m2", "John"),
+  member("m3", "Alex"),
 ];
 
 function receipt(overrides: Partial<ParsedReceipt> = {}): ParsedReceipt {
@@ -119,8 +120,8 @@ describe("computeFinalSplits — regressions", () => {
 
   it("D: refuses to guess between two members with the same name", () => {
     const twoJohns: GroupMember[] = [
-      { id: "m1", displayName: "John", isGhost: false },
-      { id: "m2", displayName: "John", isGhost: false },
+      member("m1", "John"),
+      member("m2", "John"),
     ];
     const result = computeFinalSplits(
       receipt({
@@ -243,7 +244,7 @@ describe("computeFinalSplits — behaviour", () => {
   });
 
   it("matches names case- and accent-insensitively", () => {
-    const jose: GroupMember[] = [{ id: "m1", displayName: "José", isGhost: false }];
+    const jose: GroupMember[] = [member("m1", "José")];
     const result = computeFinalSplits(
       receipt({
         line_items: [

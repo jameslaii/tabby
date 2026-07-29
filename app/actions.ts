@@ -41,18 +41,39 @@ export async function addExpenseAction(
   const description = String(formData.get("description") ?? "").trim();
   if (!description) return { error: "Give the expense a description." };
 
+  // Each input is checked on its own so the message names the field that's
+  // actually wrong. A single catch around the write reported every failure —
+  // an unknown payer, a missing group — as "that amount isn't a number".
+  const amount = String(formData.get("amount") ?? "");
+  let totalCents: number;
   try {
-    addManualExpense({
-      groupId,
-      description,
-      category: isCategory(rawCategory) ? rawCategory : null,
-      amount: String(formData.get("amount") ?? ""),
-      payerId: String(formData.get("payerId")),
-      participantIds,
-    });
+    totalCents = toCents(amount);
   } catch {
     return { error: "That amount doesn't look like a number." };
   }
+  if (totalCents <= 0) {
+    return { error: "An expense has to be for a positive amount." };
+  }
+
+  const group = getGroup(groupId);
+  if (!group) return { error: "Group not found." };
+
+  const payerId = String(formData.get("payerId"));
+  if (!group.members.some((m) => m.id === payerId)) {
+    return { error: "Pick who paid." };
+  }
+  if (!participantIds.every((p) => group.members.some((m) => m.id === p))) {
+    return { error: "Someone in that split isn't in this group." };
+  }
+
+  addManualExpense({
+    groupId,
+    description,
+    category: isCategory(rawCategory) ? rawCategory : null,
+    amount,
+    payerId,
+    participantIds,
+  });
 
   revalidatePath(`/groups/${groupId}`);
   redirect(`/groups/${groupId}`);

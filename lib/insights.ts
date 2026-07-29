@@ -37,7 +37,7 @@ export interface Insights {
  */
 export function buildInsights(
   expenses: Expense[],
-  memberId: string,
+  memberId: string | null,
 ): Insights {
   const byCategory = new Map<Category, CategorySlice>();
 
