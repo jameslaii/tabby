@@ -1,0 +1,193 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Palette from the Tabby brand sheet. */
+:root {
+  --ink: #2a211c;
+  --ginger: #d9730d;
+  --ginger-dark: #b85a0a;
+  --teal: #1f5f5b;
+  --paper: #f5d9b0;
+  --canvas: #fdfbf9;
+}
+
+html,
+body {
+  min-height: 100%;
+}
+
+body {
+  color: var(--ink);
+  background: #fdfbf9;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* --- The surface -------------------------------------------------------
+   A warm multi-stop wash rather than a flat fill: peach at the top-left,
+   a blush bloom top-right, cooling to near-white at the bottom. Fixed to
+   the viewport so it stays put while content scrolls over it. */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -2;
+  background:
+    radial-gradient(120% 80% at 12% -5%, #fbe6cf 0%, rgba(251, 230, 207, 0) 55%),
+    radial-gradient(95% 65% at 88% 4%, #fce7e0 0%, rgba(252, 231, 224, 0) 52%),
+    radial-gradient(80% 50% at 70% 32%, #f7f0dd 0%, rgba(247, 240, 221, 0) 60%),
+    linear-gradient(180deg, #fdf7f0 0%, #fdfbf9 48%, #ffffff 100%);
+}
+
+/* Dotted texture, strongest at the top and gone by mid-screen so it never
+   sits behind a column of numbers. */
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-image: radial-gradient(rgba(42, 33, 28, 0.055) 1px, transparent 1px);
+  background-size: 14px 14px;
+  -webkit-mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.85), transparent 60%);
+  mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.85), transparent 60%);
+}
+
+@layer components {
+  /* --- Surfaces --------------------------------------------------------
+     Frosted glass over the wash. `.card-data` raises the opacity for any
+     panel carrying money — balances have to stay crisply legible, and a
+     translucent surface behind a column of figures costs contrast. */
+  .card {
+    @apply rounded-[24px] p-5;
+    background: rgba(255, 255, 255, 0.55);
+    backdrop-filter: blur(20px) saturate(140%);
+    -webkit-backdrop-filter: blur(20px) saturate(140%);
+    border: 1px solid rgba(255, 255, 255, 0.72);
+    box-shadow:
+      0 10px 30px -12px rgba(42, 33, 28, 0.16),
+      0 2px 6px rgba(42, 33, 28, 0.03);
+  }
+
+  .card-data {
+    background: rgba(255, 255, 255, 0.88);
+    border-color: rgba(255, 255, 255, 0.9);
+  }
+
+  /* --- Type ------------------------------------------------------------ */
+  .display {
+    @apply font-extrabold tracking-[-0.025em];
+    font-size: clamp(30px, 8.4vw, 38px);
+    line-height: 1.06;
+  }
+
+  .display-sm {
+    @apply text-[26px] font-extrabold leading-[1.1] tracking-[-0.02em];
+  }
+
+  .card-title {
+    @apply text-[17px] font-extrabold tracking-[-0.01em];
+  }
+
+  .lede {
+    @apply text-[15px] leading-relaxed text-ink/55;
+  }
+
+  /* Small outlined pill that sits above a headline. */
+  .eyebrow {
+    @apply inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-[13px] font-semibold;
+    color: var(--ginger-dark);
+    border: 1px solid rgba(217, 115, 13, 0.26);
+    background: rgba(255, 255, 255, 0.6);
+  }
+
+  /* --- Buttons ---------------------------------------------------------
+     Primary is black, as in the references. That keeps ginger meaningful:
+     it stays an accent on small elements rather than becoming the loudest
+     thing on every screen. */
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-full px-6 py-3.5
+           text-[15px] font-bold transition active:scale-[0.98]
+           disabled:pointer-events-none disabled:opacity-45;
+  }
+  .btn-primary {
+    @apply btn text-white;
+    background: var(--ink);
+    box-shadow: 0 8px 20px -8px rgba(42, 33, 28, 0.5);
+  }
+  .btn-primary:hover {
+    background: #3a2f28;
+  }
+  .btn-secondary {
+    @apply btn text-ink;
+    background: rgba(255, 255, 255, 0.7);
+    border: 1px solid rgba(42, 33, 28, 0.1);
+  }
+  .btn-secondary:hover {
+    background: rgba(255, 255, 255, 0.95);
+  }
+  .btn-accent {
+    @apply btn text-white;
+    background: var(--ginger);
+  }
+  .btn-accent:hover {
+    background: var(--ginger-dark);
+  }
+  /* The quiet "Maybe Later" affordance. */
+  .btn-ghost {
+    @apply w-full py-3 text-center text-[15px] font-semibold text-ink/45 transition hover:text-ink/70;
+  }
+
+  /* --- Inputs ---------------------------------------------------------- */
+  .field {
+    @apply w-full rounded-2xl px-4 py-3 text-[15px] outline-none
+           placeholder:text-ink/30 transition;
+    background: rgba(255, 255, 255, 0.75);
+    border: 1px solid rgba(42, 33, 28, 0.1);
+  }
+  .field:focus {
+    border-color: rgba(31, 95, 91, 0.55);
+    box-shadow: 0 0 0 4px rgba(31, 95, 91, 0.1);
+    background: #fff;
+  }
+
+  .label {
+    @apply mb-1.5 block text-[11px] font-bold uppercase tracking-[0.1em] text-ink/40;
+  }
+
+  .chip {
+    @apply inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium;
+  }
+}
+
+/* Respect a reduced-transparency preference: glass becomes opaque rather
+   than merely less blurred, so contrast never depends on the wash behind it. */
+@media (prefers-reduced-transparency: reduce) {
+  .card {
+    background: #fff !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+}
+
+@keyframes fadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

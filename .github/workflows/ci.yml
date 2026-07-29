@@ -1,0 +1,28 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # Typecheck separately from the build: `next build` skips tests/, which
+      # is how a broken Expense literal in tests/balances.test.ts sat on the
+      # branch through four green builds.
+      - run: npm run typecheck
+
+      - run: npm test
+
+      - run: npm run build
