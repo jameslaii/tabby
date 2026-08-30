@@ -47,6 +47,18 @@ const RECEIPT_SCHEMA = {
         additionalProperties: false,
       },
     },
+    payers: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          member_name: { type: "string" },
+          amount: { type: "number" },
+        },
+        required: ["member_name", "amount"],
+        additionalProperties: false,
+      },
+    },
     unresolved_items: {
       type: "array",
       items: {
@@ -68,6 +80,7 @@ const RECEIPT_SCHEMA = {
     "other_charges",
     "grand_total",
     "assignments",
+    "payers",
     "unresolved_items",
   ],
   additionalProperties: false,
@@ -89,7 +102,13 @@ Rules:
 - Emit at most one assignment per line item. Never emit two entries with the same line_item_temp_id.
 - If a name in the host's comment doesn't clearly match any group member, or an item's owner is genuinely ambiguous even with the default-to-everyone fallback, still assign it (using the default-to-everyone fallback) AND add it to unresolved_items with a short reason, so a human can double check it.
 - Do not compute per-person dollar amounts yourself — only report which members share which item. Downstream code handles the math.
-- Tax, tip, and other charges are NOT individual line items — report them in the top-level fields, not in line_items.`;
+- Tax, tip, and other charges are NOT individual line items — report them in the top-level fields, not in line_items.
+
+Who paid ("payers"):
+- Separate question from who owes. The host often says who settled the bill: "I paid", "Sarah got this one", "we went halves on the tab".
+- One payer named: return that one name with the receipt's grand_total as the amount.
+- Several people paid: list each. If the host says how much each put in, use those amounts; if not, give every payer an amount of 0 and the app will divide the bill evenly between them.
+- The host says nothing about who paid: return an empty payers array. Do not guess — an invented payer silently moves real money.`;
 
 export type ReceiptMediaType = "image/jpeg" | "image/png" | "image/webp";
 
@@ -196,6 +215,7 @@ export function demoReceipt(members: GroupMember[]): ParsedReceipt {
       { line_item_temp_id: "i4", member_names: [second], split_type: "equal", shares: [] },
       { line_item_temp_id: "i5", member_names: names, split_type: "equal", shares: [] },
     ],
+    payers: [{ member_name: first, amount: 135.01 }],
     unresolved_items: [
       { line_item_temp_id: "i5", reason: "Nobody claimed the sparkling water — split across everyone." },
     ],

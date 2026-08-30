@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { toCents } from "../lib/money";
 import { computeFinalSplits } from "../lib/splits";
 import { isCategory } from "../lib/categories";
+import { MAX_RECEIPTS_PER_SPLIT } from "../lib/types";
 import type { LineItem, ParsedReceipt } from "../lib/types";
 import {
   addItemizedExpense,
@@ -125,77 +126,157 @@ export async function settleUpAction(
   return {};
 }
 
+export interface ReceiptToSave {
+  description: string;
+  parsed: ParsedReceipt;
+  /** Who fronted the money. Must sum to the receipt's reconciled total. */
+  payers: { memberId: string; amountPaid: number }[];
+}
+
 /**
- * Persist a reviewed receipt.
+ * Persist a reviewed set of receipts — one outing, one or more bills.
  *
  * The client previews splits as the host edits, but the amounts saved here are
  * recomputed server-side from the assignments. Money the browser calculated is
  * never trusted — the preview and the record come from the same function, so
  * they agree, but only one of them is authoritative.
+ *
+ * Each receipt becomes its own expense. That keeps the ride there, the ride
+ * back and the dinner between them as three separate things you can read on
+ * the group page and, later, correct one at a time — and it lets each carry
+ * its own payer, which is the whole point of splitting an outing rather than
+ * a single bill.
  */
-export async function saveReceiptAction(input: {
+export async function saveReceiptsAction(input: {
   groupId: string;
-  description: string;
-  payerId: string;
-  parsed: ParsedReceipt;
+  receipts: ReceiptToSave[];
   rawComment: string;
 }): Promise<ActionResult> {
   const group = getGroup(input.groupId);
   if (!group) return { error: "Group not found." };
 
-  // An unknown payer would record money paid by nobody: the payment side is
-  // dropped from balances while the debts count, the group stops summing to
-  // zero, and debt simplification refuses to run. Reject it at the door.
-  if (!group.members.some((m) => m.id === input.payerId)) {
-    return { error: "Pick who paid." };
+  if (!Array.isArray(input.receipts) || input.receipts.length === 0) {
+    return { error: "There's nothing to save." };
+  }
+  if (input.receipts.length > MAX_RECEIPTS_PER_SPLIT) {
+    return { error: `That's more than ${MAX_RECEIPTS_PER_SPLIT} receipts at once.` };
   }
 
-  if (!Array.isArray(input.parsed?.line_items)) {
-    return { error: "That receipt data is malformed — try parsing it again." };
-  }
-  if (input.parsed.line_items.length > MAX_LINE_ITEMS) {
-    return { error: "That's too many line items for one expense — split the bill in two." };
+  const comment =
+    String(input.rawComment ?? "").slice(0, MAX_COMMENT_CHARS) || null;
+
+  // Validate every receipt before writing any of them. A half-saved outing is
+  // worse than a rejected one: the balances would be real but incomplete, and
+  // there's no way to tell from the group page which half made it.
+  const prepared: {
+    description: string;
+    lineItems: LineItem[];
+    splits: ReturnType<typeof computeFinalSplits>["splits"];
+    totalCents: number;
+    payers: { memberId: string; amountPaid: number }[];
+  }[] = [];
+
+  for (const receipt of input.receipts) {
+    const label =
+      String(receipt?.description ?? "").trim().slice(0, MAX_DESCRIPTION_CHARS) ||
+      "Receipt";
+
+    if (!Array.isArray(receipt?.parsed?.line_items)) {
+      return { error: `"${label}" is malformed — scan it again.` };
+    }
+    if (receipt.parsed.line_items.length > MAX_LINE_ITEMS) {
+      return { error: `"${label}" has too many line items — split that bill in two.` };
+    }
+
+    // `parsed` is a client payload. The UI only ever round-trips what the
+    // parse route returned, but nothing forces a caller to: a NaN price must
+    // come back as an error, not throw mid-action as a 500.
+    let result: ReturnType<typeof computeFinalSplits>;
+    let lineItems: LineItem[];
+    try {
+      result = computeFinalSplits(receipt.parsed, group.members);
+      lineItems = receipt.parsed.line_items.map((item) => ({
+        id: crypto.randomUUID(),
+        description: String(item.description ?? "").slice(0, MAX_DESCRIPTION_CHARS),
+        quantity: item.quantity,
+        unitPrice: toCents(item.unit_price),
+        lineTotal: toCents(item.line_total),
+      }));
+    } catch {
+      return { error: `The amounts on "${label}" aren't real numbers — scan it again.` };
+    }
+
+    if (result.totalCents <= 0) {
+      return { error: `"${label}" doesn't add up to anything to split.` };
+    }
+
+    // Payers are checked as hard as splits are. An unknown payer records money
+    // paid by nobody — the payment is dropped from balances while the debts
+    // count, the group stops summing to zero, and debt simplification refuses
+    // to run, which bricks the group page.
+    const payers = Array.isArray(receipt.payers) ? receipt.payers : [];
+    if (payers.length === 0) {
+      return { error: `Choose who paid for "${label}".` };
+    }
+
+    const seen = new Set<string>();
+    let paidTotal = 0;
+    for (const payer of payers) {
+      const memberId = String(payer?.memberId ?? "");
+      if (!group.members.some((m) => m.id === memberId)) {
+        return { error: `Whoever paid for "${label}" isn't in this group.` };
+      }
+      if (seen.has(memberId)) {
+        return { error: `The same person is listed twice as paying for "${label}".` };
+      }
+      seen.add(memberId);
+
+      const amount = Number(payer?.amountPaid);
+      if (!Number.isSafeInteger(amount) || amount < 0) {
+        return { error: `The amount paid for "${label}" isn't a whole number of cents.` };
+      }
+      paidTotal += amount;
+    }
+
+    if (paidTotal !== result.totalCents) {
+      return {
+        error: `What was paid for "${label}" doesn't match its total — reopen it and check who paid.`,
+      };
+    }
+
+    prepared.push({
+      description: label,
+      lineItems,
+      splits: result.splits,
+      totalCents: result.totalCents,
+      payers: payers.map((p) => ({
+        memberId: String(p.memberId),
+        amountPaid: Number(p.amountPaid),
+      })),
+    });
   }
 
-  // `parsed` is a client payload. The UI only ever round-trips what the parse
-  // route returned, but nothing forces a caller to: a NaN price or a garbage
-  // amount must come back as an error, not throw mid-action as a 500.
-  let result: ReturnType<typeof computeFinalSplits>;
-  let lineItems: LineItem[];
-  try {
-    result = computeFinalSplits(input.parsed, group.members);
-    lineItems = input.parsed.line_items.map((item) => ({
-      id: crypto.randomUUID(),
-      description: String(item.description ?? "").slice(0, MAX_DESCRIPTION_CHARS),
-      quantity: item.quantity,
-      unitPrice: toCents(item.unit_price),
-      lineTotal: toCents(item.line_total),
-    }));
-  } catch {
-    return { error: "Those amounts don't add up to real numbers — try parsing again." };
+  for (const receipt of prepared) {
+    addItemizedExpense({
+      groupId: input.groupId,
+      description: receipt.description,
+      // The activity line reads "<name> added <thing>", so it names whoever
+      // put in the most — the rest are on the expense itself.
+      payerId: [...receipt.payers].sort((a, b) => b.amountPaid - a.amountPaid)[0]
+        .memberId,
+      payers: receipt.payers,
+      totalCents: receipt.totalCents,
+      lineItems: receipt.lineItems,
+      splits: receipt.splits.map((s) => ({
+        memberId: s.memberId,
+        lineItemId: null,
+        splitType: "exact" as const,
+        shareValue: null,
+        amountOwed: s.amountOwed,
+      })),
+      rawComment: comment,
+    });
   }
-
-  if (result.totalCents <= 0) {
-    return { error: "This receipt doesn't add up to anything to split." };
-  }
-
-  addItemizedExpense({
-    groupId: input.groupId,
-    description:
-      String(input.description ?? "").trim().slice(0, MAX_DESCRIPTION_CHARS) ||
-      "Receipt",
-    payerId: input.payerId,
-    totalCents: result.totalCents,
-    lineItems,
-    splits: result.splits.map((s) => ({
-      memberId: s.memberId,
-      lineItemId: null,
-      splitType: "exact" as const,
-      shareValue: null,
-      amountOwed: s.amountOwed,
-    })),
-    rawComment: String(input.rawComment ?? "").slice(0, MAX_COMMENT_CHARS) || null,
-  });
 
   revalidatePath(`/groups/${input.groupId}`);
   return {};

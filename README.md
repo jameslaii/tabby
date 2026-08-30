@@ -11,7 +11,7 @@ which item*; the app does every cent of the arithmetic.
 ```bash
 npm install
 npm run dev          # http://localhost:3000
-npm test             # 65 tests over the money paths
+npm test             # 87 tests over the money paths
 npm run typecheck    # tsc --noEmit; `next build` skips tests/
 ```
 
@@ -29,7 +29,8 @@ CI runs typecheck, tests and build on every pull request.
 | Path | |
 |---|---|
 | `lib/money.ts` | Integer-cent primitives and largest-remainder apportionment |
-| `lib/splits.ts` | Claude's item→person mapping → exact per-person amounts |
+| `lib/splits.ts` | Claude's item→person mapping → exact per-person amounts, and who paid |
+| `lib/assign.ts` | Text-only re-split of "who had what, who paid" across every receipt |
 | `lib/balances.ts` | Net positions and greedy debt simplification |
 | `lib/categories.ts` | The fixed category vocabulary and keyword fallback |
 | `lib/classify.ts` | Batched Claude categorization of expense descriptions |
@@ -88,6 +89,37 @@ mostly inherit it rather than restating it.
 screen, a floating glass preview, and a single black CTA. It's also where a
 first-run user lands when they have no groups yet.
 
+## An outing, not a bill
+
+A night out bills more than once — a ride there, dinner, a ride back — so the
+receipt flow takes several photos at a time and keeps each as its own expense.
+That matters for more than tidiness: each bill carries **its own payer**, which
+is the only way "I got the Grab there, Sarah got the way back" ends up as two
+different debts instead of one averaged one. Receipts are read in parallel as
+they arrive, so the review screen fills in while you're still describing who
+had what.
+
+Photos are downscaled to a 1600px JPEG in the browser before upload. A phone
+photo is 3–8 MB and base64 adds a third on top, which is past the 4.5 MB body
+limit Vercel enforces *at the edge* — it answers with a 413 and an empty body,
+so there is nothing for `response.json()` to parse and the failure used to
+reach the user as the browser's own "The string did not match the expected
+pattern". Re-encoding lands a legible receipt around 300 KB, normalises the
+iPhone's HEIC into something the API accepts, and drops the EXIF payload.
+
+Editing the description doesn't re-read the photos. `lib/assign.ts` is a
+text-only pass over the already-extracted line items, which is both cheaper and
+the only way an instruction spanning receipts can work — "I paid the Grab
+there, Sarah paid the way back" is meaningless to a call that can only see one
+of the two rides.
+
+**Who paid is asked separately from who owes**, and is never guessed. If the
+description doesn't name a payer, the receipt is flagged and won't save until
+someone is picked. A payer who isn't in the group, or amounts that don't add up
+to the bill, are warnings rather than silent adjustments — a payment recorded
+against nobody drops out of balances while the debts stay, and a group that
+doesn't sum to zero makes debt simplification refuse to run.
+
 ## Insights
 
 Every expense is classified into one of ten fixed categories — Dining,
@@ -129,8 +161,9 @@ colour; identity comes from the label and emoji instead.
 - **Multi-currency.** Amounts are USD-labelled throughout; no conversion,
   despite `Group.defaultCurrency` existing. The exchange-rate source is still
   an open decision.
-- **Multi-payer entry.** The data model supports several payers per expense and
-  balances compute correctly from it, but the manual-entry form only offers one.
+- **Multi-payer manual entry.** The receipt flow reads several payers per bill
+  and splits what they each put in; the manual add-expense form still offers
+  only one payer.
 - **Prototype drift.** `docs/prototype.html` re-implements the money logic so it
   can run as a static page. Nothing asserts the two agree; treat `lib/` as the
   source of truth and re-port when the maths changes.

@@ -18,9 +18,10 @@ export default async function ReceiptPage({
         ← {group.name}
       </Link>
       <div>
-        <h1 className="display-sm">Scan a receipt</h1>
+        <h1 className="display-sm">Split an outing</h1>
         <p className="lede mt-1.5 text-[14px]">
-          Photograph the bill, say who had what, and review before it saves.
+          Add every receipt — the ride there, dinner, the ride back. Say who had
+          what and who paid, then review before it saves.
         </p>
       </div>
       <ReceiptFlow groupId={id} members={group.members} />

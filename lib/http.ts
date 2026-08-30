@@ -25,13 +25,17 @@ export async function readJson(
 /**
  * The largest receipt photo we'll accept, as base64 characters.
  *
- * A modern phone camera produces 3–8 MB of JPEG, and base64 inflates that by a
- * third; 12 MB of encoded text is a generous ceiling for a legible receipt and
- * well under the point where the request stops being worth attempting. Without
- * a check the upload fails deep in the platform's body handling, where nothing
- * can tell the user what went wrong or that resizing would fix it.
+ * This has to sit *below* the host's own request-body cap, which on Vercel is
+ * 4.5 MB and is enforced at the edge before the function runs — it answers an
+ * oversized upload with a 413 and an empty body, so there is nothing for the
+ * client to read and `response.json()` throws on the empty string. (In Safari
+ * that surfaces as "The string did not match the expected pattern", which is
+ * what a phone-sized photo used to produce here.) At 3 MB the app's own check
+ * runs first and can say something useful; the client also downscales before
+ * uploading, so a real receipt lands around 300 KB and never reaches either
+ * limit.
  */
-export const MAX_IMAGE_BASE64_CHARS = 12 * 1024 * 1024;
+export const MAX_IMAGE_BASE64_CHARS = 3 * 1024 * 1024;
 
 /**
  * The longest "who had what" text forwarded to the model. Real instructions

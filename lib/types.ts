@@ -109,6 +109,18 @@ export interface ParsedReceipt {
     split_type: "equal" | "shares";
     shares: number[];
   }[];
+  /**
+   * Who settled this bill at the counter, read from the host's description.
+   *
+   * Optional because it arrived after the first version of this shape — an
+   * older payload without it is still valid, and means "nobody said".
+   * `amount` is dollars; 0 means "the host named them but not their share",
+   * which `resolvePayers` divides evenly.
+   */
+  payers?: {
+    member_name: string;
+    amount: number;
+  }[];
   unresolved_items: {
     line_item_temp_id: string;
     reason: string;
@@ -116,6 +128,13 @@ export interface ParsedReceipt {
 }
 
 export const WHOLE_BILL = "WHOLE_BILL";
+
+/**
+ * How many receipts one split can cover — a dinner plus the rides either side
+ * of it, with room to spare. The ceiling exists because every receipt costs a
+ * vision call, and those are the expensive part.
+ */
+export const MAX_RECEIPTS_PER_SPLIT = 8;
 
 export interface FinalSplit {
   memberId: string;
@@ -137,7 +156,10 @@ export interface SplitWarning {
     | "invalid_shares"
     | "subtotal_mismatch"
     | "total_mismatch"
-    | "model_flagged";
+    | "model_flagged"
+    | "no_payer"
+    | "unknown_payer_name"
+    | "payer_total_mismatch";
   message: string;
   /** temp_id of the offending line item, when it maps to one. */
   lineItemTempId?: string;

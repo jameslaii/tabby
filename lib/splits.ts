@@ -1,6 +1,7 @@
 import { apportion, toCents, type Cents } from "./money";
 import {
   WHOLE_BILL,
+  type ExpensePayer,
   type FinalSplit,
   type GroupMember,
   type ParsedReceipt,
@@ -54,11 +55,7 @@ export function computeFinalSplits(
   // never guess: a name that matches two members is ambiguous, not a coin
   // flip. (`group_members.display_name` has no uniqueness constraint, so two
   // people named "John" is a legal, and very ordinary, group.)
-  const byName = new Map<string, GroupMember[]>();
-  for (const m of members) {
-    const key = normalizeName(m.displayName);
-    byName.set(key, [...(byName.get(key) ?? []), m]);
-  }
+  const byName = buildNameIndex(members);
 
   const subtotalByMember = new Map<string, Cents>(members.map((m) => [m.id, 0]));
   const credit = (memberId: string, amount: Cents) =>
@@ -257,6 +254,113 @@ export function computeFinalSplits(
   }
 
   return { splits, warnings, totalCents };
+}
+
+/**
+ * Work out who actually paid this bill, from the names the model read out of
+ * the host's description.
+ *
+ * Separate from `computeFinalSplits` on purpose: that function answers "who
+ * owes what", this one answers "who fronted the money". Balances need both,
+ * and getting the second one wrong is what makes a group stop summing to zero
+ * — so every failure here is a warning for the review screen and an empty
+ * result, never a guess about whose card came out.
+ */
+export function resolvePayers(
+  parsed: ParsedReceipt,
+  members: GroupMember[],
+  totalCents: Cents,
+): { payers: ExpensePayer[]; warnings: SplitWarning[] } {
+  const warnings: SplitWarning[] = [];
+  const byName = buildNameIndex(members);
+  const resolved: { member: GroupMember; amountCents: Cents }[] = [];
+
+  for (const entry of parsed.payers ?? []) {
+    const name = String(entry?.member_name ?? "");
+    const matches = byName.get(normalizeName(name));
+
+    if (!matches || matches.length === 0) {
+      warnings.push({
+        code: "unknown_payer_name",
+        message: `"${name}" was named as paying but isn't in this group — pick who paid by hand.`,
+      });
+      continue;
+    }
+    if (matches.length > 1) {
+      warnings.push({
+        code: "unknown_payer_name",
+        message: `"${name}" matches ${matches.length} members — pick who paid by hand.`,
+      });
+      continue;
+    }
+
+    let amountCents = 0;
+    try {
+      amountCents = Math.max(0, toCents(entry.amount ?? 0));
+    } catch {
+      amountCents = 0; // An unreadable figure means "amount unknown", not "zero paid".
+    }
+
+    // The same person named twice is one payer who put in the sum of both.
+    const already = resolved.find((r) => r.member.id === matches[0].id);
+    if (already) already.amountCents += amountCents;
+    else resolved.push({ member: matches[0], amountCents });
+  }
+
+  if (resolved.length === 0) {
+    warnings.push({
+      code: "no_payer",
+      message: "Nobody was named as having paid — choose who paid before saving.",
+    });
+    return { payers: [], warnings };
+  }
+
+  const ids = resolved.map((r) => r.member.id);
+  const stated = resolved.reduce((sum, r) => sum + r.amountCents, 0);
+
+  // Named payers but no figures: they went halves (or thirds) on the bill.
+  if (stated === 0) {
+    const parts = apportion(totalCents, resolved.map(() => 1), ids);
+    return { payers: toPayers(ids, parts), warnings };
+  }
+
+  if (stated !== totalCents) {
+    warnings.push({
+      code: "payer_total_mismatch",
+      message: `The amounts paid add up to ${fmt(stated)}, but the bill is ${fmt(totalCents)}. Split it in proportion — check before saving.`,
+    });
+    const parts = apportion(
+      totalCents,
+      resolved.map((r) => r.amountCents),
+      ids,
+    );
+    return { payers: toPayers(ids, parts), warnings };
+  }
+
+  return {
+    payers: resolved.map((r) => ({ memberId: r.member.id, amountPaid: r.amountCents })),
+    warnings,
+  };
+}
+
+/** Share one bill equally between the chosen payers. Used when the host edits by hand. */
+export function payersFor(memberIds: string[], totalCents: Cents): ExpensePayer[] {
+  if (memberIds.length === 0) return [];
+  const parts = apportion(totalCents, memberIds.map(() => 1), memberIds);
+  return toPayers(memberIds, parts);
+}
+
+function toPayers(ids: string[], parts: Cents[]): ExpensePayer[] {
+  return ids.map((memberId, i) => ({ memberId, amountPaid: parts[i] }));
+}
+
+function buildNameIndex(members: GroupMember[]): Map<string, GroupMember[]> {
+  const byName = new Map<string, GroupMember[]>();
+  for (const m of members) {
+    const key = normalizeName(m.displayName);
+    byName.set(key, [...(byName.get(key) ?? []), m]);
+  }
+  return byName;
 }
 
 function normalizeName(name: string): string {
