@@ -19,6 +19,7 @@ import { AddMemberForm, SettleUpForm } from "../../../../components/Forms";
 import { InsightsPanel } from "../../../../components/InsightsPanel";
 import { GroupMissing } from "../../../../components/GroupMissing";
 import { Loading, useStore } from "../../../../components/StoreProvider";
+import { TabbyCat } from "../../../../components/TabbyCat";
 import { CATEGORY_EMOJI } from "../../../../lib/categories";
 
 export default function GroupPage() {
@@ -46,6 +47,13 @@ export default function GroupPage() {
       {/* Hero — the group's headline state, sitting on the paper rather than
           inside a panel. One figure, set large and monospaced. */}
       <section className="pb-5 text-center">
+        {/* Reaching zero is the one genuinely satisfying moment in the whole
+            product, and it used to be announced by a sentence. Guarded on
+            there being expenses, so a brand-new group doesn't show this cat
+            and the empty-list one directly beneath it. */}
+        {me !== null && myNet === 0 && expenses.length > 0 && (
+          <TabbyCat size={132} className="mx-auto -mb-1 mt-1" />
+        )}
         <span className="eyebrow">
           <span aria-hidden="true" className="not-italic">
             {group.emoji}
@@ -183,9 +191,13 @@ export default function GroupPage() {
       <section className="card card-data">
         <h2 className="card-title">Expenses</h2>
         {expenses.length === 0 ? (
-          <p className="lede mt-2 text-[14px]">
-            Nothing yet. Scan a receipt and it&rsquo;ll show up here.
-          </p>
+          <div className="py-3 text-center">
+            <TabbyCat size={124} className="mx-auto" />
+            <p className="lede mt-1 text-[14px]">
+              Nothing on the tab yet. Scan a receipt and it&rsquo;ll show up
+              here.
+            </p>
+          </div>
         ) : (
           <ul className="mt-2">
             {expenses.map((e) => (

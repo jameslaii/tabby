@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { TabbyMark } from "./Logo";
+import { TabbyCat } from "./TabbyCat";
 
 /**
  * Onboarding — the hero-moment genre.
@@ -133,22 +133,15 @@ export function Onboarding({ hasGroups }: { hasGroups: boolean }) {
 
 function WelcomePreview() {
   return (
-    // Stacked with a small overlap rather than absolutely positioned — an
-    // absolute card sat on top of the tagline at narrow widths.
-    <div className="w-[17rem]">
-      <div className="card flex items-center gap-3.5 p-4">
-        <TabbyMark size={46} />
-        <div>
-          <div className="font-display text-lg font-extrabold leading-none">Tabby</div>
-          <div className="mt-1.5 font-mono text-[9.5px] font-medium uppercase tracking-[0.14em] text-teal">
-            Split the bill
-          </div>
-        </div>
-      </div>
-      <div className="card card-data relative -mt-2 ml-auto w-[10.5rem] p-3.5">
-        <div className="card-title">
-          You're owed
-        </div>
+    // The cat carries this one rather than a card repeating the wordmark — the
+    // headline directly beneath already says "Split the bill", so a card saying
+    // it again was the least useful thing on the first screen anyone sees.
+    <div className="relative w-[18rem]">
+      <TabbyCat size={212} className="-ml-3" />
+      {/* Tucked under the cat's back rather than laid across it — the card is
+          the smaller idea here and shouldn't cover the thing it belongs to. */}
+      <div className="card card-data absolute bottom-1 right-0 w-[8.75rem] p-3.5">
+        <div className="card-title">You&rsquo;re owed</div>
         <div className="money mt-1 text-2xl font-medium text-teal">$75.00</div>
       </div>
     </div>
