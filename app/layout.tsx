@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
+import { StoreProvider } from "../components/StoreProvider";
 
 export const metadata: Metadata = {
   title: "Tabby — split the bill, not the friendship",
@@ -18,7 +19,11 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body>
+        {/* At the root so onboarding, which sits outside the app layout, can
+            read the same groups the rest of the app does. */}
+        <StoreProvider>{children}</StoreProvider>
+      </body>
     </html>
   );
 }

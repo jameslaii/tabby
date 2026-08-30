@@ -1,21 +1,17 @@
 import { NextResponse } from "next/server";
 import { classifyBatch, isConfigured, type ClassifyInput } from "../../../lib/classify";
-import { buildInsights } from "../../../lib/insights";
 import { readJson, withinRateLimit } from "../../../lib/http";
-import {
-  currentMemberId,
-  getExpenses,
-  getGroup,
-  getUncategorized,
-  setCategories,
-} from "../../../lib/store";
+
+/** One classify call covers a whole group's worth of pending expenses. */
+const MAX_ITEMS = 100;
 
 /**
- * Classify every uncategorized expense in a group, in one batched call, and
- * return the refreshed insights.
+ * Label a batch of expenses.
  *
- * Safe to call repeatedly: expenses that already carry a category are skipped,
- * so opening the panel again costs nothing.
+ * Stateless: the caller sends the expenses that still need a category and
+ * applies the answer to its own copy. Batched rather than per-expense-on-save
+ * because "add taxi, $12" has to feel instant, and a model call in front of it
+ * wouldn't.
  */
 export async function POST(request: Request) {
   if (!withinRateLimit(request, "categorize", 20)) {
@@ -30,29 +26,33 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Expected a JSON body." }, { status: 400 });
   }
 
-  const group = getGroup(String(body.groupId));
-  if (!group) {
-    return NextResponse.json({ error: "Group not found." }, { status: 404 });
+  if (!Array.isArray(body.items)) {
+    return NextResponse.json(
+      { error: "Expected a list of expenses to categorize." },
+      { status: 400 },
+    );
   }
 
-  // Cap one batch at a size a single model call handles comfortably; anything
-  // beyond it stays pending and the next open of the panel picks it up.
-  const pending = getUncategorized(group.id).slice(0, 100);
-  const items: ClassifyInput[] = pending.map((expense) => ({
-    id: expense.id,
-    description: expense.description,
-    lineItems: expense.lineItems.map((li) => li.description),
-  }));
+  const items: ClassifyInput[] = [];
+  for (const raw of (body.items as unknown[]).slice(0, MAX_ITEMS)) {
+    const entry = raw as { id?: unknown; description?: unknown; lineItems?: unknown };
+    if (typeof entry.id !== "string") continue;
+    items.push({
+      id: entry.id,
+      description: String(entry.description ?? "").slice(0, 200),
+      lineItems: Array.isArray(entry.lineItems)
+        ? entry.lineItems.slice(0, 60).map((li) => String(li ?? "").slice(0, 200))
+        : undefined,
+    });
+  }
+
+  if (items.length === 0) {
+    return NextResponse.json({ categories: {}, usedAi: false });
+  }
 
   try {
-    const updates = await classifyBatch(items);
-    const applied = setCategories(group.id, updates);
-
-    return NextResponse.json({
-      applied,
-      usedAi: isConfigured(),
-      insights: buildInsights(getExpenses(group.id), currentMemberId(group.id)),
-    });
+    const categories = await classifyBatch(items);
+    return NextResponse.json({ categories, usedAi: isConfigured() });
   } catch (error) {
     return NextResponse.json(
       {

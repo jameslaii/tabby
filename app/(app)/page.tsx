@@ -1,25 +1,28 @@
+"use client";
+
 import Link from "next/link";
-import { redirect } from "next/navigation";
+import { useRouter } from "next/navigation";
+import { useEffect } from "react";
 import { computeBalances, balanceFor } from "../../lib/balances";
 import { formatAbs } from "../../lib/money";
 import {
   currentMemberId,
   getExpenses,
   getSettlements,
-  listGroups,
-} from "../../lib/store";
-import { createGroupAction } from "../actions";
+} from "../../lib/db";
+import { Loading, useStore } from "../../components/StoreProvider";
 
-export default async function HomePage({
-  searchParams,
-}: {
-  searchParams: Promise<{ new?: string }>;
-}) {
-  const groups = listGroups();
-  const { new: isNew } = await searchParams;
+export default function HomePage() {
+  const router = useRouter();
+  const { db, ready, persistent } = useStore();
+  const groups = db.groups;
 
   // First run with nothing to show: go straight to the tour.
-  if (groups.length === 0 && !isNew) redirect("/welcome");
+  useEffect(() => {
+    if (ready && groups.length === 0) router.replace("/welcome");
+  }, [ready, groups.length, router]);
+
+  if (!ready) return <Loading label="Opening your groups…" />;
 
   // The one figure the screen leads with: the viewer's overall position.
   // "Me" is resolved per group — the same person holds a different member row
@@ -27,10 +30,10 @@ export default async function HomePage({
   const netOverall = groups.reduce((sum, group) => {
     const balances = computeBalances(
       group.members,
-      getExpenses(group.id),
-      getSettlements(group.id),
+      getExpenses(db, group.id),
+      getSettlements(db, group.id),
     );
-    return sum + balanceFor(balances, currentMemberId(group.id));
+    return sum + balanceFor(balances, currentMemberId(db, group.id));
   }, 0);
 
   return (
@@ -63,14 +66,22 @@ export default async function HomePage({
         </p>
       </section>
 
+      {!persistent && (
+        <p className="mb-4 rounded-xl bg-ginger/10 px-4 py-3 text-sm text-ginger-dark">
+          This browser won&rsquo;t let Tabby save anything, so your groups will
+          be gone when you close the tab. Turn off private browsing, or allow
+          site data for this page.
+        </p>
+      )}
+
       <section className="space-y-3">
         {groups.map((group) => {
           const balances = computeBalances(
             group.members,
-            getExpenses(group.id),
-            getSettlements(group.id),
+            getExpenses(db, group.id),
+            getSettlements(db, group.id),
           );
-          const net = balanceFor(balances, currentMemberId(group.id));
+          const net = balanceFor(balances, currentMemberId(db, group.id));
 
           return (
             <Link key={group.id} href={`/groups/${group.id}`} className="block">
@@ -81,7 +92,8 @@ export default async function HomePage({
                 <div className="min-w-0 flex-1">
                   <div className="truncate font-bold">{group.name}</div>
                   <div className="text-[13px] text-ink/45">
-                    {group.members.length} people
+                    {group.members.length}{" "}
+                    {group.members.length === 1 ? "person" : "people"}
                   </div>
                 </div>
                 <div className="text-right">
@@ -110,30 +122,9 @@ export default async function HomePage({
         })}
       </section>
 
-      <section className="card mt-4">
-        <h2 className="display-sm">Start a group</h2>
-        <p className="lede mt-1.5 text-[14px]">
-          A trip, a flat, a standing dinner — anywhere money gets shared.
-        </p>
-        <form action={createGroupAction} className="mt-4 space-y-3">
-          <div className="flex gap-2">
-            <input
-              name="emoji"
-              defaultValue="🍜"
-              aria-label="Group emoji"
-              className="field w-16 text-center text-xl"
-              maxLength={4}
-            />
-            <input
-              name="name"
-              placeholder="Ski trip, flatmates, book club…"
-              className="field flex-1"
-              required
-            />
-          </div>
-          <button className="btn-primary w-full">Create group</button>
-        </form>
-      </section>
+      <Link href="/groups/new" className="btn-primary mt-4 w-full py-3.5">
+        <span aria-hidden="true">＋</span> Start a group
+      </Link>
     </main>
   );
 }

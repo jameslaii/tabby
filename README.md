@@ -36,7 +36,8 @@ CI runs typecheck, tests and build on every pull request.
 | `lib/classify.ts` | Batched Claude categorization of expense descriptions |
 | `lib/insights.ts` | Spend aggregation for the insights panel |
 | `lib/parseReceipt.ts` | The Claude vision + Structured Outputs call |
-| `lib/store.ts` | In-memory data layer, shaped 1:1 to `supabase/schema.sql` |
+| `lib/db.ts` | The data layer as pure state transitions, shaped 1:1 to `supabase/schema.sql` |
+| `components/StoreProvider.tsx` | Holds that state in the browser and persists it to localStorage |
 | `lib/http.ts` | Request-body parsing and the upload size ceiling |
 | `app/` | Next.js App Router pages, server actions, parse API route |
 | `supabase/schema.sql` | Postgres schema with RLS policies and sum-integrity triggers |
@@ -88,6 +89,32 @@ mostly inherit it rather than restating it.
 `/welcome` is a four-step onboarding flow in the hero genre — one idea per
 screen, a floating glass preview, and a single black CTA. It's also where a
 first-run user lands when they have no groups yet.
+
+## Where the data lives
+
+In the browser, under one localStorage key, written on every change.
+
+It used to live in a module-scope variable on the server, which survives
+exactly as long as a single Node process. Deployed to a serverless host that is
+not long: each request can land on a different instance, so a group created by
+one request was missing from the next and its page 404'd — the user hitting
+"Scan a receipt" on a group they had just made. A cold start or a deploy wiped
+everything. The old README noted this ruled out serverless; it needed to be a
+blocker rather than a footnote.
+
+The browser is also the right place for it while there are no accounts. The
+server copy was one global dataset, so every visitor saw and edited the same
+groups. Now `lib/db.ts` is pure — `(Db, input) => Db`, no ambient state, which
+is what makes it straightforward to test — and `StoreProvider` owns the single
+instance and persists it. Anything unrecognised coming out of storage is
+discarded rather than repaired: a half-understood expense is a wrong balance.
+
+The API routes are stateless. They take the member names with the request
+instead of looking a group up, so they run correctly on any instance and hold
+nothing about anyone between calls.
+
+The trade is that a group lives on the device that made it. Multi-device and
+sharing need Supabase plus auth, which is what `supabase/schema.sql` is for.
 
 ## An outing, not a bill
 
@@ -154,10 +181,11 @@ colour; identity comes from the label and emoji instead.
   every group carries a `group_members` row pointing at it. Supabase auth is
   the next step, and `supabase/schema.sql` already carries the RLS policies it
   needs — swapping `currentUserId()` for `auth.uid()` is most of the job.
-- **Persistence.** `lib/store.ts` is in-memory and resets on restart. It's
-  written against the same shape as the schema, so it swaps for a Supabase
-  client function by function. Note this also rules out deploying to a
-  serverless host as-is: state would reset per instance.
+- **Multi-device and sharing.** Data lives in one browser (see *Where the data
+  lives*). Opening a group on your laptop that you made on your phone shows the
+  "not on this device" screen, and there's no way to hand a group to someone
+  else. Supabase plus auth is the fix, and `supabase/schema.sql` is already
+  written for it.
 - **Multi-currency.** Amounts are USD-labelled throughout; no conversion,
   despite `Group.defaultCurrency` existing. The exchange-rate source is still
   an open decision.

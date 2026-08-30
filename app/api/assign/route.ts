@@ -4,8 +4,12 @@ import {
   isConfigured,
   type AssignReceipt,
 } from "../../../lib/assign";
-import { getGroup } from "../../../lib/store";
-import { MAX_INSTRUCTIONS_CHARS, readJson, withinRateLimit } from "../../../lib/http";
+import {
+  MAX_INSTRUCTIONS_CHARS,
+  readJson,
+  readMemberNames,
+  withinRateLimit,
+} from "../../../lib/http";
 import { MAX_RECEIPTS_PER_SPLIT, type ParsedReceipt } from "../../../lib/types";
 
 /**
@@ -27,9 +31,12 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Expected a JSON body." }, { status: 400 });
   }
 
-  const group = getGroup(String(body.groupId));
-  if (!group) {
-    return NextResponse.json({ error: "Group not found." }, { status: 404 });
+  const memberNames = readMemberNames(body.memberNames);
+  if (memberNames.length === 0) {
+    return NextResponse.json(
+      { error: "That group has nobody in it to split between." },
+      { status: 400 },
+    );
   }
 
   const instructions = String(body.instructions ?? "").slice(
@@ -85,11 +92,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    const patches = await assignAcrossReceipts(
-      receipts,
-      instructions,
-      group.members.map((m) => m.displayName),
-    );
+    const patches = await assignAcrossReceipts(receipts, instructions, memberNames);
     return NextResponse.json({ patches, usedAi: true });
   } catch (error) {
     return NextResponse.json(

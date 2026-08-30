@@ -2,7 +2,8 @@
 
 import { useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { saveReceiptsAction } from "../app/actions";
+import { addItemizedExpenses, type ItemizedExpenseInput } from "../lib/db";
+import { useStore } from "./StoreProvider";
 import { computeFinalSplits, payersFor, resolvePayers } from "../lib/splits";
 import { formatCents, toCents } from "../lib/money";
 import {
@@ -62,6 +63,7 @@ export function ReceiptFlow({
   members: GroupMember[];
 }) {
   const router = useRouter();
+  const { update } = useStore();
   const [stage, setStage] = useState<Stage>("capture");
   const [drafts, setDrafts] = useState<Draft[]>([]);
   const [instructions, setInstructions] = useState("");
@@ -133,7 +135,9 @@ export function ReceiptFlow({
       const data = await postJson<{ parsed: ParsedReceipt; demo: boolean }>(
         "/api/parse-receipt",
         {
-          groupId,
+          // The group lives in this browser, so the server is told who's in it
+          // rather than looking it up.
+          memberNames: members.map((m) => m.displayName),
           imageBase64: image.base64,
           mediaType: image.mediaType,
           instructions,
@@ -192,7 +196,7 @@ export function ReceiptFlow({
         >;
         usedAi: boolean;
       }>("/api/assign", {
-        groupId,
+        memberNames: members.map((m) => m.displayName),
         instructions,
         receipts: ready.map((d) => ({
           id: d.id,
@@ -298,7 +302,7 @@ export function ReceiptFlow({
     setError(null);
   }
 
-  async function save() {
+  function save() {
     if (ready.length === 0) {
       setError("There's nothing to save yet.");
       return;
@@ -309,25 +313,57 @@ export function ReceiptFlow({
       return;
     }
 
+    // Amounts are recomputed here from the assignments rather than read off
+    // the rendered rows, so what's stored comes from the same function that
+    // drew the preview.
+    const receipts: ItemizedExpenseInput[] = [];
+    for (const draft of ready) {
+      const parsed = draft.parsed as ParsedReceipt;
+      const result = results.get(draft.id);
+      if (!result) {
+        setError(`"${labelFor(draft, drafts)}" didn't add up — scan it again.`);
+        return;
+      }
+
+      let lineItems;
+      try {
+        lineItems = parsed.line_items.map((item) => ({
+          id: newId(),
+          description: String(item.description ?? "").slice(0, 200),
+          quantity: item.quantity,
+          unitPrice: toCents(item.unit_price),
+          lineTotal: toCents(item.line_total),
+        }));
+      } catch {
+        setError(`The amounts on "${labelFor(draft, drafts)}" aren't readable.`);
+        return;
+      }
+
+      receipts.push({
+        description: labelFor(draft, drafts),
+        totalCents: result.totalCents,
+        lineItems,
+        splits: result.splits.map((s) => ({
+          memberId: s.memberId,
+          lineItemId: null,
+          splitType: "exact" as const,
+          shareValue: null,
+          amountOwed: s.amountOwed,
+        })),
+        payers: draft.payers,
+        rawComment: instructions.slice(0, 2000) || null,
+      });
+    }
+
     setBusy(true);
-    setError(null);
-    const response = await saveReceiptsAction({
-      groupId,
-      rawComment: instructions,
-      receipts: ready.map((d) => ({
-        description: labelFor(d, drafts),
-        parsed: d.parsed as ParsedReceipt,
-        payers: d.payers,
-      })),
-    });
+    const outcome = update((db) => addItemizedExpenses(db, groupId, receipts));
     setBusy(false);
 
-    if (response.error) {
-      setError(response.error);
+    if (outcome.error) {
+      setError(outcome.error);
       return;
     }
     router.push(`/groups/${groupId}`);
-    router.refresh();
   }
 
   // ---- Capture ----------------------------------------------------------
@@ -651,7 +687,7 @@ export function ReceiptFlow({
         </button>
         <button
           className="btn-primary col-span-2"
-          onClick={() => void save()}
+          onClick={save}
           disabled={busy || parsing || ready.length === 0}
         >
           {busy

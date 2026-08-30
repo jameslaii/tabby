@@ -44,6 +44,30 @@ export const MAX_IMAGE_BASE64_CHARS = 3 * 1024 * 1024;
  */
 export const MAX_INSTRUCTIONS_CHARS = 2000;
 
+/**
+ * Read the group's member names off a request.
+ *
+ * The routes are stateless — groups live in the caller's browser — so who is
+ * in the group arrives with each request. Blanks and duplicates are dropped
+ * and the list is capped: these names go straight into a prompt, and an
+ * unbounded array of them is somebody else's token bill.
+ */
+export function readMemberNames(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  const seen = new Set<string>();
+  const names: string[] = [];
+  for (const entry of raw) {
+    const name = String(entry ?? "").trim().slice(0, 60);
+    if (!name) continue;
+    const key = name.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    names.push(name);
+    if (names.length >= 50) break;
+  }
+  return names;
+}
+
 // ---- Rate limiting ------------------------------------------------------
 //
 // The AI routes spend real money per request and sit on a public URL with no

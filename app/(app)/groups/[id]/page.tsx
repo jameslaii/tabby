@@ -1,5 +1,7 @@
+"use client";
+
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { useParams } from "next/navigation";
 import {
   balanceFor,
   computeBalances,
@@ -12,29 +14,32 @@ import {
   getExpenses,
   getGroup,
   getSettlements,
-} from "../../../../lib/store";
+} from "../../../../lib/db";
 import { AddMemberForm, SettleUpForm } from "../../../../components/Forms";
 import { InsightsPanel } from "../../../../components/InsightsPanel";
-import { buildInsights } from "../../../../lib/insights";
+import { GroupMissing } from "../../../../components/GroupMissing";
+import { Loading, useStore } from "../../../../components/StoreProvider";
 import { CATEGORY_EMOJI } from "../../../../lib/categories";
 
-export default async function GroupPage({
-  params,
-}: {
-  params: Promise<{ id: string }>;
-}) {
-  const { id } = await params;
-  const group = getGroup(id);
-  if (!group) notFound();
+export default function GroupPage() {
+  const { id } = useParams<{ id: string }>();
+  const { db, ready } = useStore();
 
-  const expenses = getExpenses(id);
-  const settlements = getSettlements(id);
+  if (!ready) return <Loading label="Opening the group…" />;
+
+  const group = getGroup(db, id);
+  if (!group) return <GroupMissing />;
+
+  const expenses = getExpenses(db, id);
+  const settlements = getSettlements(db, id);
   const balances = computeBalances(group.members, expenses, settlements);
   const transfers = simplifyDebts(balances);
-  const me = currentMemberId(id);
+  const me = currentMemberId(db, id);
   const myNet = balanceFor(balances, me);
   const nameOf = (memberId: string) =>
     group.members.find((m) => m.id === memberId)?.displayName ?? "Someone";
+
+  const alone = group.members.length < 2;
 
   return (
     <main className="space-y-4">
@@ -72,17 +77,29 @@ export default async function GroupPage({
         </p>
       </section>
 
-      <div>
-        <Link href={`/groups/${id}/receipt`} className="btn-primary w-full">
-          <span aria-hidden="true">📸</span> Scan a receipt
-        </Link>
-        <Link
-          href={`/groups/${id}/add`}
-          className="btn-ghost mt-1 block"
-        >
-          or add it manually
-        </Link>
-      </div>
+      {/* A group of one can't split anything, so that's the only thing worth
+          asking for until it's fixed. */}
+      {alone ? (
+        <section className="card border border-ginger/30 bg-ginger/5">
+          <h2 className="card-title">Add the others first</h2>
+          <p className="mt-1.5 text-sm text-ink/60">
+            There&rsquo;s only you in {group.name}, so there&rsquo;s nobody to
+            split with yet. Add everyone who was there.
+          </p>
+          <div className="mt-4">
+            <AddMemberForm groupId={id} />
+          </div>
+        </section>
+      ) : (
+        <div>
+          <Link href={`/groups/${id}/receipt`} className="btn-primary w-full">
+            <span aria-hidden="true">📸</span> Scan a receipt
+          </Link>
+          <Link href={`/groups/${id}/add`} className="btn-ghost mt-1 block">
+            or add it manually
+          </Link>
+        </div>
+      )}
 
       <section className="card card-data">
         <h2 className="card-title">Balances</h2>
@@ -115,7 +132,7 @@ export default async function GroupPage({
           </h3>
           {transfers.length === 0 ? (
             <p className="mt-2 text-sm text-ink/55">
-              Nothing to settle — everyone's square.
+              Nothing to settle — everyone&rsquo;s square.
             </p>
           ) : (
             <>
@@ -140,12 +157,14 @@ export default async function GroupPage({
         </div>
       </section>
 
-      <InsightsPanel groupId={id} initial={buildInsights(expenses, me)} />
+      {expenses.length > 0 && <InsightsPanel groupId={id} />}
 
       <section className="card card-data">
         <h2 className="card-title">Expenses</h2>
         {expenses.length === 0 ? (
-          <p className="lede mt-2 text-[14px]">Nothing yet.</p>
+          <p className="lede mt-2 text-[14px]">
+            Nothing yet. Scan a receipt and it&rsquo;ll show up here.
+          </p>
         ) : (
           <ul className="mt-3 divide-y divide-ink/8">
             {expenses.map((e) => (
@@ -171,28 +190,30 @@ export default async function GroupPage({
         )}
       </section>
 
-      <section className="card">
-        <h2 className="card-title">Settle up</h2>
-        <div className="mt-4">
-          <SettleUpForm
-            groupId={id}
-            members={group.members}
-            suggestions={transfers}
-          />
-        </div>
-        {settlements.length > 0 && (
-          <ul className="mt-5 space-y-1.5 border-t border-ink/8 pt-4">
-            {settlements.map((s) => (
-              <li key={s.id} className="text-sm text-ink/55">
-                {nameOf(s.fromMember)} paid {nameOf(s.toMember)}{" "}
-                <span className="font-semibold text-ink">
-                  {formatCents(s.amount, s.currency)}
-                </span>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
+      {!alone && (
+        <section className="card">
+          <h2 className="card-title">Settle up</h2>
+          <div className="mt-4">
+            <SettleUpForm
+              groupId={id}
+              members={group.members}
+              suggestions={transfers}
+            />
+          </div>
+          {settlements.length > 0 && (
+            <ul className="mt-5 space-y-1.5 border-t border-ink/8 pt-4">
+              {settlements.map((s) => (
+                <li key={s.id} className="text-sm text-ink/55">
+                  {nameOf(s.fromMember)} paid {nameOf(s.toMember)}{" "}
+                  <span className="font-semibold text-ink">
+                    {formatCents(s.amount, s.currency)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      )}
 
       <section className="card">
         <h2 className="card-title">Members</h2>
@@ -205,17 +226,16 @@ export default async function GroupPage({
               }`}
             >
               {m.displayName}
-              {m.isGhost && <span className="text-[10px] opacity-60">ghost</span>}
             </li>
           ))}
         </ul>
-        <AddMemberForm groupId={id} />
+        {!alone && <AddMemberForm groupId={id} />}
       </section>
 
       <section className="card">
         <h2 className="card-title">Activity</h2>
         <ul className="mt-4 space-y-2.5">
-          {getActivity(id).map((a) => (
+          {getActivity(db, id).map((a) => (
             <li key={a.id} className="flex gap-2.5 text-sm">
               <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-ginger" />
               <span className="text-ink/65">{a.summary}</span>

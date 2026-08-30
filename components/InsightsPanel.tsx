@@ -1,30 +1,47 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { CATEGORY_EMOJI } from "../lib/categories";
 import { formatCents } from "../lib/money";
-import type { Insights } from "../lib/insights";
+import { buildInsights } from "../lib/insights";
+import {
+  currentMemberId,
+  getExpenses,
+  getUncategorized,
+  setCategories,
+} from "../lib/db";
+import { useStore } from "./StoreProvider";
 
 type Measure = "group" | "you";
 
-export function InsightsPanel({
-  groupId,
-  initial,
-}: {
-  groupId: string;
-  initial: Insights;
-}) {
-  const [insights, setInsights] = useState(initial);
+export function InsightsPanel({ groupId }: { groupId: string }) {
+  const { db, update } = useStore();
   const [measure, setMeasure] = useState<Measure>("group");
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   const ran = useRef(false);
 
+  const expenses = getExpenses(db, groupId);
+  const me = currentMemberId(db, groupId);
+  const insights = useMemo(
+    () => buildInsights(expenses, me),
+    [expenses, me],
+  );
+
+  const pending = getUncategorized(db, groupId);
+  const pendingCount = pending.length;
+
   // Classify on first open, batched. Expenses save instantly with no category
   // and get labelled here, so adding an expense never waits on a model call.
   useEffect(() => {
-    if (ran.current || initial.uncategorized === 0) return;
+    if (ran.current || pendingCount === 0) return;
     ran.current = true;
+
+    const items = pending.map((expense) => ({
+      id: expense.id,
+      description: expense.description,
+      lineItems: expense.lineItems.map((li) => li.description),
+    }));
 
     (async () => {
       setBusy(true);
@@ -32,12 +49,19 @@ export function InsightsPanel({
         const response = await fetch("/api/categorize", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ groupId }),
+          body: JSON.stringify({ items }),
         });
-        const data = await response.json();
-        if (!response.ok) throw new Error(data.error);
-        setInsights(data.insights);
-        if (!data.usedAi && data.applied > 0) {
+        const text = await response.text();
+        const data = text ? JSON.parse(text) : null;
+        if (!response.ok || !data) {
+          throw new Error(data?.error ?? "Couldn't categorize those.");
+        }
+
+        update((current) => ({
+          db: setCategories(current, groupId, data.categories ?? {}),
+        }));
+
+        if (!data.usedAi) {
           setNote(
             "Categorized by keyword — set ANTHROPIC_API_KEY for Claude to read the descriptions properly.",
           );
@@ -48,7 +72,9 @@ export function InsightsPanel({
         setBusy(false);
       }
     })();
-  }, [groupId, initial.uncategorized]);
+    // Runs once per mount; `ran` guards re-entry while the request is open.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [groupId, pendingCount]);
 
   const total = measure === "group" ? insights.groupTotal : insights.yourTotal;
   const rows = [...insights.byCategory].sort((a, b) =>

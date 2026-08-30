@@ -1,9 +1,11 @@
 "use client";
 
-import { useActionState } from "react";
-import { addExpenseAction, type ActionResult } from "../app/actions";
+import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { addManualExpense } from "../lib/db";
+import { useStore } from "./StoreProvider";
 import type { GroupMember } from "../lib/types";
-import { CATEGORIES, CATEGORY_EMOJI } from "../lib/categories";
+import { CATEGORIES, CATEGORY_EMOJI, isCategory } from "../lib/categories";
 
 export function ManualExpenseForm({
   groupId,
@@ -12,25 +14,58 @@ export function ManualExpenseForm({
   groupId: string;
   members: GroupMember[];
 }) {
-  const [state, action, pending] = useActionState(
-    addExpenseAction,
-    {} as ActionResult,
+  const router = useRouter();
+  const { update } = useStore();
+
+  const [description, setDescription] = useState("");
+  const [amount, setAmount] = useState("");
+  const [category, setCategory] = useState("");
+  const [payerId, setPayerId] = useState(members[0]?.id ?? "");
+  const [participants, setParticipants] = useState<string[]>(
+    members.map((m) => m.id),
   );
+  const [error, setError] = useState<string | null>(null);
+
+  function toggle(memberId: string) {
+    setParticipants((current) =>
+      current.includes(memberId)
+        ? current.filter((p) => p !== memberId)
+        : [...current, memberId],
+    );
+  }
+
+  function submit(event: React.FormEvent) {
+    event.preventDefault();
+    const result = update((db) =>
+      addManualExpense(db, {
+        groupId,
+        description,
+        category: isCategory(category) ? category : null,
+        amount,
+        payerId,
+        participantIds: participants,
+      }),
+    );
+    if (result.error) {
+      setError(result.error);
+      return;
+    }
+    router.push(`/groups/${groupId}`);
+  }
 
   return (
-    <form action={action} className="card space-y-4">
-      <input type="hidden" name="groupId" value={groupId} />
-
+    <form onSubmit={submit} className="card space-y-4">
       <div>
         <label className="label" htmlFor="description">
           What was it?
         </label>
         <input
           id="description"
-          name="description"
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
           placeholder="Groceries, cab, tickets…"
           className="field"
-          required
+          autoFocus
         />
       </div>
 
@@ -41,11 +76,11 @@ export function ManualExpenseForm({
           </label>
           <input
             id="amount"
-            name="amount"
             inputMode="decimal"
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
             placeholder="0.00"
             className="field"
-            required
           />
         </div>
         <div>
@@ -54,7 +89,12 @@ export function ManualExpenseForm({
           </label>
           {/* Empty value means "let Tabby classify it". A category picked
               here is marked manual and is never overwritten by the AI pass. */}
-          <select id="category" name="category" className="field" defaultValue="">
+          <select
+            id="category"
+            className="field"
+            value={category}
+            onChange={(e) => setCategory(e.target.value)}
+          >
             <option value="">✨ Auto</option>
             {CATEGORIES.map((c) => (
               <option key={c} value={c}>
@@ -69,7 +109,12 @@ export function ManualExpenseForm({
         <label className="label" htmlFor="payerId">
           Who paid?
         </label>
-        <select id="payerId" name="payerId" className="field">
+        <select
+          id="payerId"
+          className="field"
+          value={payerId}
+          onChange={(e) => setPayerId(e.target.value)}
+        >
           {members.map((m) => (
             <option key={m.id} value={m.id}>
               {m.displayName}
@@ -81,30 +126,29 @@ export function ManualExpenseForm({
       <fieldset>
         <legend className="label">Split equally between</legend>
         <div className="flex flex-wrap gap-2">
-          {members.map((m) => (
-            <label
-              key={m.id}
-              className="cursor-pointer select-none rounded-full border border-ink/15 px-3.5 py-1.5 text-sm
-                         transition has-[:checked]:border-teal has-[:checked]:bg-teal has-[:checked]:text-white"
-            >
-              <input
-                type="checkbox"
-                name="participants"
-                value={m.id}
-                defaultChecked
-                className="sr-only"
-              />
-              {m.displayName}
-            </label>
-          ))}
+          {members.map((m) => {
+            const on = participants.includes(m.id);
+            return (
+              <button
+                key={m.id}
+                type="button"
+                onClick={() => toggle(m.id)}
+                className={`rounded-full border px-3.5 py-1.5 text-sm transition ${
+                  on
+                    ? "border-teal bg-teal text-white"
+                    : "border-ink/15 text-ink/60"
+                }`}
+              >
+                {m.displayName}
+              </button>
+            );
+          })}
         </div>
       </fieldset>
 
-      {state.error && <p className="text-sm text-ginger-dark">{state.error}</p>}
+      {error && <p className="text-sm text-ginger-dark">{error}</p>}
 
-      <button className="btn-primary w-full" disabled={pending}>
-        {pending ? "Saving…" : "Save expense"}
-      </button>
+      <button className="btn-primary w-full">Save expense</button>
     </form>
   );
 }

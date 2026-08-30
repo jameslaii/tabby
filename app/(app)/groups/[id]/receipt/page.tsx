@@ -1,20 +1,27 @@
-import Link from "next/link";
-import { notFound } from "next/navigation";
-import { getGroup } from "../../../../../lib/store";
-import { ReceiptFlow } from "../../../../../components/ReceiptFlow";
+"use client";
 
-export default async function ReceiptPage({
-  params,
-}: {
-  params: Promise<{ id: string }>;
-}) {
-  const { id } = await params;
-  const group = getGroup(id);
-  if (!group) notFound();
+import Link from "next/link";
+import { useParams } from "next/navigation";
+import { getGroup } from "../../../../../lib/db";
+import { ReceiptFlow } from "../../../../../components/ReceiptFlow";
+import { GroupMissing } from "../../../../../components/GroupMissing";
+import { Loading, useStore } from "../../../../../components/StoreProvider";
+
+export default function ReceiptPage() {
+  const { id } = useParams<{ id: string }>();
+  const { db, ready } = useStore();
+
+  if (!ready) return <Loading />;
+
+  const group = getGroup(db, id);
+  if (!group) return <GroupMissing />;
 
   return (
     <main className="space-y-5">
-      <Link href={`/groups/${id}`} className="inline-block text-sm font-semibold text-ink/45 transition hover:text-ink/70">
+      <Link
+        href={`/groups/${id}`}
+        className="inline-block text-sm font-semibold text-ink/45 transition hover:text-ink/70"
+      >
         ← {group.name}
       </Link>
       <div>

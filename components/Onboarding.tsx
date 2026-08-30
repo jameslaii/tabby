@@ -102,14 +102,17 @@ export function Onboarding({ hasGroups }: { hasGroups: boolean }) {
           className="btn-primary w-full"
           onClick={() => {
             if (!last) return setIndex(index + 1);
-            router.push(hasGroups ? "/" : "/?new=1");
+            router.push(hasGroups ? "/" : "/groups/new");
           }}
         >
           {step.cta}
           {!last && <span aria-hidden="true">›››</span>}
         </button>
         {!last && (
-          <button className="btn-ghost mt-1" onClick={() => router.push("/")}>
+          <button
+            className="btn-ghost mt-1"
+            onClick={() => router.push(hasGroups ? "/" : "/groups/new")}
+          >
             Skip
           </button>
         )}
