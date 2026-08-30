@@ -140,6 +140,22 @@ the only way an instruction spanning receipts can work — "I paid the Grab
 there, Sarah paid the way back" is meaningless to a call that can only see one
 of the two rides.
 
+**Not every bill has a receipt worth photographing.** A fare is a description
+and a number, split evenly, so one can be typed straight into the outing.
+Making someone photograph a cab receipt to get it into the same split was
+asking for a ritual rather than an answer — and going through the separate
+manual form instead would have cost the thing that matters, which is that the
+ride carries its own payer and the same sentence covers it.
+
+**Several of one thing rarely went round evenly.** Three pints on one line, two
+for one person and one for another, is an ordinary bar tab and the case tapping
+names cannot express — names alone can only say "these people shared this
+equally". Any line whose quantity is more than one gets a count per person
+instead, which becomes the weighting: 2 and 1 bills $14 and $7 of a $21 round.
+Describing it in words has always worked (the model returns those weights); the
+counters are for fixing it by hand. Counts that don't add up to the quantity
+still split proportionally, and the hint says so rather than blocking on it.
+
 **Who paid is asked separately from who owes**, and is never guessed. If the
 description doesn't name a payer, the receipt is flagged and won't save until
 someone is picked. A payer who isn't in the group, or amounts that don't add up

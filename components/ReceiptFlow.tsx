@@ -281,6 +281,122 @@ export function ReceiptFlow({
     );
   }
 
+  /**
+   * Set how many of a multi-quantity item went to one person.
+   *
+   * Three pints between two people is not an equal split, and tapping names
+   * can only ever say "these people shared it evenly". Counts turn the
+   * assignment into weights — 2 and 1 bills £14 and £7 of a £21 round.
+   *
+   * The assignment is rebuilt from the group's own member list, so editing
+   * also normalises whatever spelling came back from the model.
+   */
+  function setShare(
+    draftId: string,
+    tempId: string,
+    memberName: string,
+    count: number,
+  ) {
+    setDrafts((current) =>
+      current.map((draft) => {
+        if (draft.id !== draftId || !draft.parsed) return draft;
+
+        const assignments = [...draft.parsed.assignments];
+        const index = assignments.findIndex(
+          (a) => a.line_item_temp_id === tempId,
+        );
+        const existing = index === -1 ? undefined : assignments[index];
+
+        const names: string[] = [];
+        const shares: number[] = [];
+        for (const member of members) {
+          const next =
+            member.displayName === memberName
+              ? Math.max(0, count)
+              : shareOf(existing, member.displayName);
+          if (next > 0) {
+            names.push(member.displayName);
+            shares.push(next);
+          }
+        }
+
+        // Dropping to nobody would fall back to "everyone" with a warning.
+        // Keep what was there rather than surprising the host.
+        if (names.length === 0) return draft;
+
+        const entry = {
+          line_item_temp_id: tempId,
+          member_names: names,
+          split_type: "shares" as const,
+          shares,
+        };
+        if (index === -1) assignments.push(entry);
+        else assignments[index] = entry;
+
+        return { ...draft, parsed: { ...draft.parsed, assignments } };
+      }),
+    );
+  }
+
+  /**
+   * Add a bill that has no receipt worth photographing.
+   *
+   * A cab fare is a description and a number, split evenly — but it still
+   * belongs to the outing, because it has its own payer and the same sentence
+   * usually covers it ("I got the Grab there"). Entering it here rather than
+   * through the manual form is what keeps it in the same split.
+   */
+  function addTyped(description: string, amount: string): string | null {
+    let cents: number;
+    try {
+      cents = toCents(amount);
+    } catch {
+      return "That amount doesn't look like a number.";
+    }
+    if (cents <= 0) return "An amount has to be more than zero.";
+
+    const total = cents / 100;
+    const parsed: ParsedReceipt = {
+      line_items: [],
+      subtotal: total,
+      tax: 0,
+      tip: 0,
+      other_charges: 0,
+      grand_total: total,
+      assignments: [
+        {
+          line_item_temp_id: WHOLE_BILL,
+          member_names: members.map((m) => m.displayName),
+          split_type: "equal",
+          shares: [],
+        },
+      ],
+      payers: [],
+      unresolved_items: [],
+    };
+
+    setDrafts((current) => [
+      ...current,
+      hydrate(
+        {
+          id: newId(),
+          label: description.trim(),
+          previewUrl: "",
+          status: "parsing",
+          payers: [],
+          payerNotes: [],
+          demo: false,
+        },
+        parsed,
+        members,
+        false,
+      ),
+    ]);
+    setStage("review");
+    setError(null);
+    return null;
+  }
+
   /** Add or remove a payer. Several payers share the bill evenly. */
   function togglePayer(draftId: string, memberId: string) {
     setDrafts((current) =>
@@ -427,6 +543,8 @@ export function ReceiptFlow({
             </button>
           </div>
         </div>
+
+        <TypedEntry onAdd={addTyped} />
 
         <div className="card">
           <label className="label" htmlFor="instructions">
@@ -649,6 +767,9 @@ export function ReceiptFlow({
                   result={result}
                   members={members}
                   onToggle={(tempId, name) => toggleItem(draft.id, tempId, name)}
+                  onShare={(tempId, name, count) =>
+                    setShare(draft.id, tempId, name, count)
+                  }
                 />
               </>
             )}
@@ -656,7 +777,7 @@ export function ReceiptFlow({
         );
       })}
 
-      <div className="card">
+      <div className="card space-y-3">
         <div className="grid gap-2.5 sm:grid-cols-2">
           <button
             type="button"
@@ -675,6 +796,7 @@ export function ReceiptFlow({
             🖼 Browse gallery
           </button>
         </div>
+        <TypedEntry onAdd={addTyped} compact />
       </div>
 
       <div className="grid grid-cols-3 gap-3">
@@ -708,11 +830,13 @@ function ItemList({
   result,
   members,
   onToggle,
+  onShare,
 }: {
   draft: Draft;
   result: SplitResult;
   members: GroupMember[];
   onToggle: (tempId: string, memberName: string) => void;
+  onShare: (tempId: string, memberName: string, count: number) => void;
 }) {
   const parsed = draft.parsed as ParsedReceipt;
 
@@ -723,14 +847,18 @@ function ItemList({
     (sum, item) => sum + safeCents(item.line_total),
     0,
   );
+  const remainder = safeCents(parsed.subtotal) - itemsTotal;
   const extras =
     safeCents(parsed.tax) + safeCents(parsed.tip) + safeCents(parsed.other_charges);
 
   return (
     <div>
-      <div className="label">
-        Items <span className="text-ink/40">— tap a name to add or remove them</span>
-      </div>
+      {parsed.line_items.length > 0 && (
+        <div className="label">
+          Items{" "}
+          <span className="text-ink/40">— tap a name to add or remove them</span>
+        </div>
+      )}
       <ul className="space-y-3">
         {parsed.line_items.map((item) => {
           const assignment = parsed.assignments.find(
@@ -739,6 +867,9 @@ function ItemList({
           const flagged = result.warnings.some(
             (w) => w.lineItemTempId === item.temp_id,
           );
+          // Several of the same thing rarely went to people evenly — three
+          // pints between two is the ordinary case, not the exotic one.
+          const countable = Number.isFinite(item.quantity) && item.quantity > 1;
 
           return (
             <li
@@ -748,58 +879,92 @@ function ItemList({
               }`}
             >
               <div className="flex items-baseline justify-between gap-3">
-                <span className="font-semibold">{item.description}</span>
+                <span className="font-semibold">
+                  {item.description}
+                  {countable && (
+                    <span className="ml-1.5 text-ink/45">×{item.quantity}</span>
+                  )}
+                </span>
                 <span className="shrink-0 font-semibold">
                   {formatCents(safeCents(item.line_total))}
                 </span>
               </div>
-              <div className="mt-2.5 flex flex-wrap gap-1.5">
-                {members.map((m) => {
-                  const on = assignment?.member_names.some(
-                    (n) =>
-                      n.trim().toLowerCase() ===
-                      m.displayName.trim().toLowerCase(),
-                  );
-                  return (
-                    <button
-                      key={m.id}
-                      type="button"
-                      onClick={() => onToggle(item.temp_id, m.displayName)}
-                      className={`rounded-full px-3 py-1 text-xs font-medium transition ${
-                        on
-                          ? "bg-teal text-white"
-                          : "bg-ink/5 text-ink/50 hover:bg-ink/10"
-                      }`}
-                    >
-                      {m.displayName}
-                    </button>
-                  );
-                })}
-              </div>
+
+              {countable ? (
+                <div className="mt-2.5 space-y-1">
+                  {members.map((m) => {
+                    const count = shareOf(assignment, m.displayName);
+                    return (
+                      <div
+                        key={m.id}
+                        className="flex items-center justify-between gap-3"
+                      >
+                        <span
+                          className={`text-sm ${count > 0 ? "font-medium" : "text-ink/45"}`}
+                        >
+                          {m.displayName}
+                        </span>
+                        <div className="flex items-center gap-1">
+                          <Step
+                            label={`One fewer ${item.description} for ${m.displayName}`}
+                            disabled={count === 0}
+                            onClick={() =>
+                              onShare(item.temp_id, m.displayName, count - 1)
+                            }
+                          >
+                            −
+                          </Step>
+                          <span
+                            className={`w-6 text-center text-sm tabular-nums ${
+                              count > 0 ? "font-bold" : "text-ink/30"
+                            }`}
+                          >
+                            {count}
+                          </span>
+                          <Step
+                            label={`One more ${item.description} for ${m.displayName}`}
+                            onClick={() =>
+                              onShare(item.temp_id, m.displayName, count + 1)
+                            }
+                          >
+                            +
+                          </Step>
+                        </div>
+                      </div>
+                    );
+                  })}
+                  <ShareHint assignment={assignment} quantity={item.quantity} />
+                </div>
+              ) : (
+                <MemberChips
+                  members={members}
+                  assignment={assignment}
+                  onToggle={(name) => onToggle(item.temp_id, name)}
+                />
+              )}
             </li>
           );
         })}
 
-        {wholeBill && (
+        {/* Shown whenever there's a bill left over to share — an unitemized
+            fare is entirely this row, and it has to be editable: "Alex wasn't
+            in this cab" was previously impossible to say. */}
+        {(wholeBill || remainder > 0) && (
           <li className="rounded-xl bg-canvas p-3">
             <div className="flex items-baseline justify-between gap-3">
               <span className="font-semibold">
                 {parsed.line_items.length === 0 ? "The bill" : "Rest of the bill"}
               </span>
               <span className="shrink-0 font-semibold">
-                {formatCents(safeCents(parsed.subtotal) - itemsTotal)}
+                {formatCents(remainder)}
               </span>
             </div>
-            <div className="mt-2.5 flex flex-wrap gap-1.5">
-              {wholeBill.member_names.map((n) => (
-                <span
-                  key={n}
-                  className="rounded-full bg-teal px-3 py-1 text-xs font-medium text-white"
-                >
-                  {n}
-                </span>
-              ))}
-            </div>
+            <MemberChips
+              members={members}
+              assignment={wholeBill}
+              fallbackToEveryone
+              onToggle={(name) => onToggle(WHOLE_BILL, name)}
+            />
           </li>
         )}
       </ul>
@@ -810,6 +975,176 @@ function ItemList({
           what each person had.
         </p>
       )}
+    </div>
+  );
+}
+
+function MemberChips({
+  members,
+  assignment,
+  onToggle,
+  fallbackToEveryone = false,
+}: {
+  members: GroupMember[];
+  assignment?: ParsedReceipt["assignments"][number];
+  onToggle: (memberName: string) => void;
+  /** With no assignment yet, the split falls to everyone — show that. */
+  fallbackToEveryone?: boolean;
+}) {
+  return (
+    <div className="mt-2.5 flex flex-wrap gap-1.5">
+      {members.map((m) => {
+        const named = assignment?.member_names.some((n) => sameName(n, m.displayName));
+        const on = named ?? false;
+        const shown = !assignment && fallbackToEveryone ? true : on;
+        return (
+          <button
+            key={m.id}
+            type="button"
+            onClick={() => onToggle(m.displayName)}
+            className={`rounded-full px-3 py-1 text-xs font-medium transition ${
+              shown
+                ? "bg-teal text-white"
+                : "bg-ink/5 text-ink/50 hover:bg-ink/10"
+            }`}
+          >
+            {m.displayName}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function Step({
+  children,
+  label,
+  onClick,
+  disabled,
+}: {
+  children: React.ReactNode;
+  label: string;
+  onClick: () => void;
+  disabled?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      onClick={onClick}
+      disabled={disabled}
+      className="grid h-7 w-7 place-items-center rounded-full bg-ink/5 text-sm font-bold transition hover:bg-ink/10 disabled:opacity-30"
+    >
+      {children}
+    </button>
+  );
+}
+
+/** Says whether the counts account for everything ordered. */
+function ShareHint({
+  assignment,
+  quantity,
+}: {
+  assignment?: ParsedReceipt["assignments"][number];
+  quantity: number;
+}) {
+  if (!assignment || assignment.split_type !== "shares") return null;
+
+  const assigned = assignment.shares.reduce((sum, n) => sum + n, 0);
+  if (assigned === quantity) {
+    return (
+      <p className="pt-1 text-xs text-ink/45">All {quantity} accounted for.</p>
+    );
+  }
+  return (
+    <p className="pt-1 text-xs text-ink/45">
+      {assigned} of {quantity} counted — the cost is split{" "}
+      {assignment.shares.join(":")} either way.
+    </p>
+  );
+}
+
+/**
+ * A bill with nothing worth photographing: a description and a total.
+ *
+ * Most fares and tickets are exactly this — one number, split evenly — and
+ * making people photograph a cab receipt to include it in the outing was
+ * asking for a ritual rather than an answer.
+ */
+function TypedEntry({
+  onAdd,
+  compact = false,
+}: {
+  onAdd: (description: string, amount: string) => string | null;
+  compact?: boolean;
+}) {
+  const [open, setOpen] = useState(compact);
+  const [description, setDescription] = useState("");
+  const [amount, setAmount] = useState("");
+  const [error, setError] = useState<string | null>(null);
+
+  function add() {
+    if (!description.trim()) {
+      setError("Give it a name — “Grab there”, “Taxi home”.");
+      return;
+    }
+    const failure = onAdd(description, amount);
+    if (failure) {
+      setError(failure);
+      return;
+    }
+    setDescription("");
+    setAmount("");
+    setError(null);
+  }
+
+  if (!open) {
+    return (
+      <button
+        type="button"
+        className="btn-ghost w-full"
+        onClick={() => setOpen(true)}
+      >
+        or add one without a photo
+      </button>
+    );
+  }
+
+  return (
+    <div className={compact ? "" : "card"}>
+      {!compact && (
+        <div className="label">No receipt? Just the name and the total</div>
+      )}
+      <div className="flex gap-2">
+        <input
+          value={description}
+          onChange={(e) => setDescription(e.target.value.slice(0, 200))}
+          placeholder="Grab there"
+          aria-label="What the bill was for"
+          className="field flex-1"
+        />
+        <input
+          value={amount}
+          onChange={(e) => setAmount(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              add();
+            }
+          }}
+          inputMode="decimal"
+          placeholder="0.00"
+          aria-label="Total"
+          className="field w-24"
+        />
+        <button type="button" className="btn-secondary shrink-0" onClick={add}>
+          Add
+        </button>
+      </div>
+      <p className="mt-2 text-xs text-ink/45">
+        Splits evenly across the group — untick anyone who wasn&rsquo;t there.
+      </p>
+      {error && <p className="mt-1.5 text-sm text-ginger-dark">{error}</p>}
     </div>
   );
 }
@@ -862,6 +1197,26 @@ function hydrate(
       .filter((w) => w.code !== "no_payer" || kept.length === 0)
       .map((w) => w.message),
   };
+}
+
+function sameName(a: string, b: string): boolean {
+  return a.trim().toLowerCase() === b.trim().toLowerCase();
+}
+
+/** How many of an item are down to one person. Absent means none. */
+function shareOf(
+  assignment: ParsedReceipt["assignments"][number] | undefined,
+  memberName: string,
+): number {
+  if (!assignment) return 0;
+  const index = assignment.member_names.findIndex((n) => sameName(n, memberName));
+  if (index === -1) return 0;
+
+  const weighted =
+    assignment.split_type === "shares" &&
+    assignment.shares.length === assignment.member_names.length;
+  const share = weighted ? assignment.shares[index] : 1;
+  return Number.isFinite(share) && share > 0 ? share : 1;
 }
 
 function labelFor(draft: Draft, all: Draft[]): string {
