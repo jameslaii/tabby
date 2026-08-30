@@ -1,5 +1,4 @@
-import Link from "next/link";
-import { TabbyMark } from "../../components/Logo";
+import { NavBar } from "../../components/NavBar";
 
 export default function AppLayout({
   children,
@@ -7,19 +6,12 @@ export default function AppLayout({
   children: React.ReactNode;
 }) {
   return (
-    <div className="mx-auto min-h-[100dvh] w-full max-w-md px-5 pb-16">
-      <header className="flex items-center justify-between py-5">
-        <Link href="/" aria-label="Tabby home" className="flex items-center gap-2.5">
-          <TabbyMark size={32} />
-          <span className="text-xl font-extrabold tracking-tight">Tabby</span>
-        </Link>
-        <Link
-          href="/welcome"
-          className="rounded-full px-3 py-1.5 text-[13px] font-semibold text-ink/45 transition hover:bg-white/60 hover:text-ink/70"
-        >
-          How it works
-        </Link>
-      </header>
+    // safe-x and safe-bottom replace the flat px-5/pb-16: with
+    // `viewport-fit: cover` set in the root layout the page now paints under
+    // the notch and the home indicator, and these keep content clear of both.
+    // On anything without insets they resolve to the same 20px and 3.5rem.
+    <div className="safe-x safe-bottom mx-auto min-h-[100dvh] w-full max-w-md">
+      <NavBar />
       {children}
     </div>
   );

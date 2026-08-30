@@ -5,14 +5,20 @@ export default {
   theme: {
     extend: {
       colors: {
-        ink: "#2A211C",
-        ginger: { DEFAULT: "#D9730D", dark: "#B85A0A" },
-        teal: "#1F5F5B",
-        paper: "#F5D9B0",
-        canvas: "#FDFBF9",
+        ink: "#241C17",
+        ginger: { DEFAULT: "#D9730D", dark: "#B0560A" },
+        teal: "#1A5754",
+        paper: "#F7F2E9",
+        card: "#FFFDF8",
+        canvas: "#F7F2E9",
       },
       fontFamily: {
-        sans: ["ui-rounded", "Nunito", "Quicksand", "system-ui", "sans-serif"],
+        // Loaded by next/font in app/layout.tsx, which sets these variables.
+        // Naming a family Tailwind never fetches is what left the app with no
+        // typeface of its own.
+        sans: ["var(--font-sans)", "system-ui", "sans-serif"],
+        display: ["var(--font-display)", "Georgia", "serif"],
+        mono: ["var(--font-mono)", "ui-monospace", "monospace"],
       },
     },
   },

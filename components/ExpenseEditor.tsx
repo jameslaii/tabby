@@ -254,7 +254,7 @@ export function ExpenseEditor({
                     <span className="text-ink/45"> ×{item.quantity}</span>
                   )}
                 </span>
-                <span className="shrink-0 font-semibold tabular-nums">
+                <span className="money shrink-0 text-[14px] font-medium">
                   {formatCents(item.lineTotal)}
                 </span>
               </li>
@@ -277,7 +277,7 @@ export function ExpenseEditor({
               className="flex items-center justify-between text-[15px]"
             >
               <span>{nameOf(split.memberId)}</span>
-              <span className="font-semibold tabular-nums">
+              <span className="money text-[14px] font-medium">
                 {formatCents(split.amountOwed, expense.currency)}
               </span>
             </li>

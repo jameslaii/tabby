@@ -595,7 +595,7 @@ export function ReceiptFlow({
             {ready.length === 1 ? "1 receipt" : `${ready.length} receipts`}
             {parsing && <span className="text-ink/40"> · reading…</span>}
           </h2>
-          <span className="text-lg font-bold text-teal">
+          <span className="money text-lg font-medium text-teal">
             {formatCents(totals.grand)}
           </span>
         </div>
@@ -604,7 +604,7 @@ export function ReceiptFlow({
             {members.map((m) => (
               <li key={m.id} className="flex items-center justify-between">
                 <span className="text-[15px]">{m.displayName}</span>
-                <span className="text-[15px] font-semibold">
+                <span className="money text-[15px] font-medium">
                   {formatCents(totals.perMember.get(m.id) ?? 0)}
                 </span>
               </li>
@@ -684,7 +684,7 @@ export function ReceiptFlow({
                     <span className="text-ink/45">Reading the receipt…</span>
                   )}
                   {result && (
-                    <span className="font-semibold">
+                    <span className="money text-[14px] font-medium">
                       {formatCents(result.totalCents)}
                     </span>
                   )}
@@ -885,7 +885,7 @@ function ItemList({
                     <span className="ml-1.5 text-ink/45">×{item.quantity}</span>
                   )}
                 </span>
-                <span className="shrink-0 font-semibold">
+                <span className="money shrink-0 text-[14px] font-medium">
                   {formatCents(safeCents(item.line_total))}
                 </span>
               </div>
@@ -915,7 +915,7 @@ function ItemList({
                             −
                           </Step>
                           <span
-                            className={`w-6 text-center text-sm tabular-nums ${
+                            className={`money w-6 text-center text-sm ${
                               count > 0 ? "font-bold" : "text-ink/30"
                             }`}
                           >
@@ -955,7 +955,7 @@ function ItemList({
               <span className="font-semibold">
                 {parsed.line_items.length === 0 ? "The bill" : "Rest of the bill"}
               </span>
-              <span className="shrink-0 font-semibold">
+              <span className="money shrink-0 text-[14px] font-medium">
                 {formatCents(remainder)}
               </span>
             </div>

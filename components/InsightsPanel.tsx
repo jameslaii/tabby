@@ -107,7 +107,7 @@ export function InsightsPanel({ groupId }: { groupId: string }) {
         <div
           role="group"
           aria-label="Show spending for"
-          className="flex rounded-full bg-ink/5 p-0.5"
+          className="flex rounded-[10px] bg-ink/5 p-0.5"
         >
           {(["group", "you"] as Measure[]).map((m) => (
             <button
@@ -115,7 +115,7 @@ export function InsightsPanel({ groupId }: { groupId: string }) {
               type="button"
               aria-pressed={measure === m}
               onClick={() => setMeasure(m)}
-              className={`rounded-full px-3.5 py-1 text-xs font-semibold transition ${
+              className={`min-h-[30px] rounded-[8px] px-3.5 text-xs font-semibold transition ${
                 measure === m ? "bg-white text-ink shadow-sm" : "text-ink/50"
               }`}
             >
@@ -127,10 +127,13 @@ export function InsightsPanel({ groupId }: { groupId: string }) {
 
       {/* Hero figure — the one number the panel leads with. */}
       <div className="mt-5">
-        <div className="text-xs font-semibold uppercase tracking-wider text-ink/45">
+        <div className="card-title">
           {measure === "group" ? "Total group spend" : "Your share"}
         </div>
-        <div className="mt-1 text-[48px] font-extrabold leading-none tracking-tight text-ink">
+        {/* 48px extrabold overflowed the card as soon as a total ran to four
+            figures; the mono face is narrower and this is a secondary number
+            anyway — the hero belongs to the balance at the top of the screen. */}
+        <div className="money mt-1.5 text-[36px] font-medium leading-none text-ink">
           {formatCents(total)}
         </div>
       </div>
@@ -168,7 +171,7 @@ export function InsightsPanel({ groupId }: { groupId: string }) {
                   <span aria-hidden="true">{CATEGORY_EMOJI[row.category]}</span>{" "}
                   {row.category}
                 </span>
-                <span className="shrink-0 font-semibold tabular-nums">
+                <span className="money shrink-0 text-[14px] font-medium">
                   {formatCents(cents)}
                 </span>
               </div>
@@ -212,8 +215,11 @@ function Tile({
   hint?: string;
 }) {
   return (
-    <div className="flex min-h-[68px] flex-col justify-between rounded-xl bg-canvas p-3">
-      <div className="text-[10px] font-semibold uppercase tracking-wider text-ink/40">
+    <div
+      className="flex min-h-[68px] flex-col justify-between rounded-[10px] p-3"
+      style={{ background: "var(--paper)" }}
+    >
+      <div className="font-mono text-[9.5px] font-medium uppercase tracking-[0.11em] text-ink/40">
         {label}
       </div>
       <div className="mt-1 truncate text-sm font-bold" title={hint}>

@@ -1,7 +1,6 @@
 "use client";
 
 import { useRef, useState } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createGroup } from "../../../../lib/db";
 import { useStore } from "../../../../components/StoreProvider";
@@ -67,14 +66,7 @@ export default function NewGroupPage() {
   }
 
   return (
-    <main className="space-y-5">
-      <Link
-        href="/"
-        className="inline-block text-sm font-semibold text-ink/45 transition hover:text-ink/70"
-      >
-        ← Your groups
-      </Link>
-
+    <main className="space-y-5 pt-5">
       <div>
         <h1 className="display-sm">Start a group</h1>
         <p className="lede mt-1.5 text-[14px]">

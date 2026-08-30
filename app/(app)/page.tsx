@@ -37,13 +37,13 @@ export default function HomePage() {
   }, 0);
 
   return (
-    <main>
-      <section className="pb-8 pt-4 text-center">
+    <main className="pt-5">
+      <section className="pb-7 text-center">
         <span className="eyebrow">
           <span aria-hidden="true">🐈</span>
           {groups.length} group{groups.length === 1 ? "" : "s"}
         </span>
-        <h1 className="display mt-4 text-balance">
+        <h1 className="display mt-3.5 text-balance">
           {netOverall === 0
             ? "You're all square."
             : netOverall > 0
@@ -52,7 +52,7 @@ export default function HomePage() {
         </h1>
         {netOverall !== 0 && (
           <div
-            className={`mt-3 text-[44px] font-extrabold leading-none tracking-tight ${
+            className={`money mt-3 text-[44px] font-medium leading-none ${
               netOverall > 0 ? "text-teal" : "text-ginger-dark"
             }`}
           >
@@ -85,29 +85,32 @@ export default function HomePage() {
 
           return (
             <Link key={group.id} href={`/groups/${group.id}`} className="block">
-              <div className="card flex items-center gap-4 transition hover:-translate-y-0.5">
-                <div className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-white/70 text-2xl">
+              <div className="card flex items-center gap-3.5 p-4 transition active:translate-x-[2px] active:translate-y-[2px] active:shadow-none">
+                <div
+                  className="grid h-12 w-12 shrink-0 place-items-center rounded-[12px] text-2xl"
+                  style={{ background: "var(--tape)" }}
+                >
                   {group.emoji}
                 </div>
                 <div className="min-w-0 flex-1">
-                  <div className="truncate font-bold">{group.name}</div>
-                  <div className="text-[13px] text-ink/45">
+                  <div className="truncate font-semibold">{group.name}</div>
+                  <div className="font-mono text-[10.5px] uppercase tracking-[0.08em] text-ink/40">
                     {group.members.length}{" "}
                     {group.members.length === 1 ? "person" : "people"}
                   </div>
                 </div>
-                <div className="text-right">
+                <div className="shrink-0 text-right">
                   {net === 0 ? (
-                    <span className="text-[13px] font-medium text-ink/35">
+                    <span className="font-mono text-[11px] uppercase tracking-[0.08em] text-ink/35">
                       settled
                     </span>
                   ) : (
                     <>
-                      <div className="text-[10px] font-bold uppercase tracking-wider text-ink/40">
+                      <div className="font-mono text-[10px] uppercase tracking-[0.1em] text-ink/40">
                         {net > 0 ? "owed" : "you owe"}
                       </div>
                       <div
-                        className={`text-lg font-extrabold ${
+                        className={`money text-[17px] font-medium ${
                           net > 0 ? "text-teal" : "text-ginger-dark"
                         }`}
                       >
@@ -122,7 +125,7 @@ export default function HomePage() {
         })}
       </section>
 
-      <Link href="/groups/new" className="btn-primary mt-4 w-full py-3.5">
+      <Link href="/groups/new" className="btn-primary mt-4 w-full">
         <span aria-hidden="true">＋</span> Start a group
       </Link>
     </main>

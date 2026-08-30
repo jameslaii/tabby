@@ -50,7 +50,7 @@ export function VoiceMemoButton({
   return (
     <button
       type="button"
-      className={listening ? "btn-teal" : "btn-secondary"}
+      className={`btn-sm ${listening ? "btn-teal" : "btn-secondary"}`}
       onClick={() => {
         if (listening) {
           recognition.current?.stop();

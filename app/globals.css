@@ -2,173 +2,327 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Palette from the Tabby brand sheet. */
+/* --- Palette -------------------------------------------------------------
+   Warm paper rather than the previous peach-to-white gradient wash. The wash
+   plus frosted glass is the default look of every app shipped since 2022; it
+   also cost real scroll performance on a phone (see the note on .card). */
 :root {
-  --ink: #2a211c;
+  --ink: #241c17;
+  --ink-soft: rgba(36, 28, 23, 0.55);
+  --ink-faint: rgba(36, 28, 23, 0.38);
+  --rule: rgba(36, 28, 23, 0.14);
+  --rule-strong: rgba(36, 28, 23, 0.22);
   --ginger: #d9730d;
-  --ginger-dark: #b85a0a;
-  --teal: #1f5f5b;
-  --paper: #f5d9b0;
-  --canvas: #fdfbf9;
+  --ginger-dark: #b0560a;
+  --teal: #1a5754;
+  --paper: #f7f2e9;
+  --card: #fffdf8;
+  --tape: #f0e6d4;
 }
 
-html,
+html {
+  min-height: 100%;
+  /* Safari inflates text in landscape unless told not to. */
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  /* Rubber-banding past the top or bottom of the page used to expose plain
+     white behind the fixed gradient. With a flat ground there's nothing to
+     expose, and this stops the bounce chaining to the page behind a sheet. */
+  overscroll-behavior-y: none;
+  background: var(--paper);
+}
+
 body {
   min-height: 100%;
-}
-
-body {
   color: var(--ink);
-  background: #fdfbf9;
+  background: var(--paper);
+  font-family: var(--font-sans), system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
+  overscroll-behavior-y: none;
 }
 
-/* --- The surface -------------------------------------------------------
-   A warm multi-stop wash rather than a flat fill: peach at the top-left,
-   a blush bloom top-right, cooling to near-white at the bottom. Fixed to
-   the viewport so it stays put while content scrolls over it. */
+/* The grey flash iOS paints over every tapped link is the single loudest
+   signal that something is a web page rather than an app. Buttons get their
+   own :active state below, so nothing is lost by removing it. */
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+
+a,
+button,
+label,
+summary,
+[role="button"] {
+  touch-action: manipulation;
+}
+
+/* --- The ground ----------------------------------------------------------
+   A single fixed layer: a faint grid, fading out before it reaches the middle
+   of the screen so it is never behind a column of figures. One cheap
+   compositor layer, where there used to be two stacked gradient meshes. */
 body::before {
-  content: "";
-  position: fixed;
-  inset: 0;
-  z-index: -2;
-  background:
-    radial-gradient(120% 80% at 12% -5%, #fbe6cf 0%, rgba(251, 230, 207, 0) 55%),
-    radial-gradient(95% 65% at 88% 4%, #fce7e0 0%, rgba(252, 231, 224, 0) 52%),
-    radial-gradient(80% 50% at 70% 32%, #f7f0dd 0%, rgba(247, 240, 221, 0) 60%),
-    linear-gradient(180deg, #fdf7f0 0%, #fdfbf9 48%, #ffffff 100%);
-}
-
-/* Dotted texture, strongest at the top and gone by mid-screen so it never
-   sits behind a column of numbers. */
-body::after {
   content: "";
   position: fixed;
   inset: 0;
   z-index: -1;
   pointer-events: none;
-  background-image: radial-gradient(rgba(42, 33, 28, 0.055) 1px, transparent 1px);
-  background-size: 14px 14px;
-  -webkit-mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.85), transparent 60%);
-  mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.85), transparent 60%);
+  background-image:
+    linear-gradient(rgba(36, 28, 23, 0.045) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(36, 28, 23, 0.045) 1px, transparent 1px);
+  background-size: 26px 26px;
+  -webkit-mask-image: linear-gradient(180deg, #000, transparent 52%);
+  mask-image: linear-gradient(180deg, #000, transparent 52%);
 }
 
 @layer components {
   /* --- Surfaces --------------------------------------------------------
-     Frosted glass over the wash. `.card-data` raises the opacity for any
-     panel carrying money — balances have to stay crisply legible, and a
-     translucent surface behind a column of figures costs contrast. */
+     Printed card stock, not glass. Every card used to run a
+     `backdrop-filter: blur(20px)` over two fixed gradient layers; six of them
+     stacked on one screen means the compositor re-rasterises six blurs per
+     scrolled frame, which is why scrolling stuttered on a phone. Opaque fills
+     and a hard, blurless offset shadow cost nothing to composite and read as
+     a physical object rather than a decorative pane. */
   .card {
-    @apply rounded-[24px] p-5;
-    background: rgba(255, 255, 255, 0.55);
-    backdrop-filter: blur(20px) saturate(140%);
-    -webkit-backdrop-filter: blur(20px) saturate(140%);
-    border: 1px solid rgba(255, 255, 255, 0.72);
-    box-shadow:
-      0 10px 30px -12px rgba(42, 33, 28, 0.16),
-      0 2px 6px rgba(42, 33, 28, 0.03);
+    @apply rounded-[14px] p-5;
+    background: var(--card);
+    border: 1.5px solid var(--rule);
+    box-shadow: 3px 3px 0 rgba(36, 28, 23, 0.07);
   }
 
+  /* Any panel carrying money sits a little more firmly on the page. */
   .card-data {
-    background: rgba(255, 255, 255, 0.88);
-    border-color: rgba(255, 255, 255, 0.9);
+    border-color: var(--rule-strong);
+    box-shadow: 4px 4px 0 rgba(36, 28, 23, 0.1);
+  }
+
+  /* --- The receipt -----------------------------------------------------
+     The balances panel is the one screen element worth making literal: it is
+     a bill, so it is set like one. Torn top and bottom edge, monospaced
+     figures, dotted leaders from the name to the amount. */
+  .receipt {
+    background: var(--card);
+    border-left: 1.5px solid var(--rule);
+    border-right: 1.5px solid var(--rule);
+    box-shadow: 4px 4px 0 rgba(36, 28, 23, 0.08);
+  }
+
+  .tear {
+    height: 9px;
+    background:
+      conic-gradient(from -45deg at 50% 100%, transparent 0 90deg, var(--card) 0)
+      0 0 / 18px 9px repeat-x;
+    filter: drop-shadow(0 0 0.5px var(--rule));
+  }
+  .tear-bottom {
+    transform: scaleY(-1);
+  }
+
+  /* A row that reads across: name, dots, figure. The dots do real work —
+     they carry the eye from a short name to a right-aligned number. */
+  .leader {
+    @apply flex items-baseline gap-2;
+  }
+  .leader-dots {
+    @apply min-w-[1.25rem] flex-1;
+    border-bottom: 1.5px dotted var(--rule-strong);
+    transform: translateY(-0.3em);
   }
 
   /* --- Type ------------------------------------------------------------ */
   .display {
-    @apply font-extrabold tracking-[-0.025em];
-    font-size: clamp(30px, 8.4vw, 38px);
-    line-height: 1.06;
+    font-family: var(--font-display), Georgia, serif;
+    font-weight: 800;
+    font-size: clamp(31px, 8.6vw, 40px);
+    line-height: 1.02;
+    letter-spacing: -0.022em;
   }
 
   .display-sm {
-    @apply text-[26px] font-extrabold leading-[1.1] tracking-[-0.02em];
+    font-family: var(--font-display), Georgia, serif;
+    @apply text-[25px] font-bold leading-[1.08] tracking-[-0.018em];
   }
 
+  /* Section headings are set as small monospaced caps rather than bold sans.
+     It puts them firmly below the one hero headline per screen instead of
+     competing with it, and it is most of what makes the app read as a ledger. */
   .card-title {
-    @apply text-[17px] font-extrabold tracking-[-0.01em];
+    font-family: var(--font-mono), ui-monospace, monospace;
+    @apply text-[11.5px] font-medium uppercase tracking-[0.13em];
+    color: var(--ink-faint);
+  }
+
+  /* Every figure. Tabular by construction, so columns of money line up and a
+     number doesn't reflow as it counts up. */
+  .money {
+    font-family: var(--font-mono), ui-monospace, monospace;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.02em;
   }
 
   .lede {
-    @apply text-[15px] leading-relaxed text-ink/55;
+    @apply text-[15px] leading-relaxed;
+    color: var(--ink-soft);
   }
 
-  /* Small outlined pill that sits above a headline. */
+  /* Small monospaced label above a headline, with a ginger tick. */
   .eyebrow {
-    @apply inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-[13px] font-semibold;
+    font-family: var(--font-mono), ui-monospace, monospace;
+    @apply inline-flex items-center gap-1.5 rounded-[7px] px-2.5 py-1 text-[11px] font-medium uppercase tracking-[0.11em];
     color: var(--ginger-dark);
-    border: 1px solid rgba(217, 115, 13, 0.26);
-    background: rgba(255, 255, 255, 0.6);
+    border: 1.5px solid rgba(217, 115, 13, 0.28);
+    background: rgba(217, 115, 13, 0.06);
   }
 
   /* --- Buttons ---------------------------------------------------------
-     Primary is black, as in the references. That keeps ginger meaningful:
-     it stays an accent on small elements rather than becoming the loudest
-     thing on every screen. */
+     Squared off rather than a full pill, and 52px tall. A pill is the shape
+     every template ships with; the height is what a thumb actually needs.
+     The 2px hard shadow collapses under the press, so a tap feels like
+     pressing something rather than watching an opacity change. */
   .btn {
-    @apply inline-flex items-center justify-center gap-2 rounded-full px-6 py-3.5
-           text-[15px] font-bold transition active:scale-[0.98]
-           disabled:pointer-events-none disabled:opacity-45;
+    @apply inline-flex min-h-[52px] items-center justify-center gap-2
+           rounded-[13px] px-6 text-[15px] font-semibold transition-transform
+           duration-75 disabled:pointer-events-none disabled:opacity-40;
   }
+  .btn:active:not(:disabled) {
+    transform: translate(2px, 2px);
+    box-shadow: none !important;
+  }
+
   .btn-primary {
     @apply btn text-white;
     background: var(--ink);
-    box-shadow: 0 8px 20px -8px rgba(42, 33, 28, 0.5);
+    box-shadow: 2px 2px 0 rgba(36, 28, 23, 0.28);
   }
   .btn-primary:hover {
-    background: #3a2f28;
+    background: #3a2e26;
   }
-  .btn-secondary {
-    @apply btn text-ink;
-    background: rgba(255, 255, 255, 0.7);
-    border: 1px solid rgba(42, 33, 28, 0.1);
+
+  .btn-teal {
+    @apply btn text-white;
+    background: var(--teal);
+    box-shadow: 2px 2px 0 rgba(26, 87, 84, 0.28);
   }
-  .btn-secondary:hover {
-    background: rgba(255, 255, 255, 0.95);
+  .btn-teal:hover {
+    background: #164945;
   }
+
   .btn-accent {
     @apply btn text-white;
     background: var(--ginger);
+    box-shadow: 2px 2px 0 rgba(176, 86, 10, 0.3);
   }
   .btn-accent:hover {
     background: var(--ginger-dark);
   }
-  /* The quiet "Maybe Later" affordance. */
-  .btn-ghost {
-    @apply w-full py-3 text-center text-[15px] font-semibold text-ink/45 transition hover:text-ink/70;
-  }
 
-  /* --- Inputs ---------------------------------------------------------- */
-  .field {
-    @apply w-full rounded-2xl px-4 py-3 text-[15px] outline-none
-           placeholder:text-ink/30 transition;
-    background: rgba(255, 255, 255, 0.75);
-    border: 1px solid rgba(42, 33, 28, 0.1);
+  .btn-secondary {
+    @apply btn;
+    background: var(--card);
+    border: 1.5px solid var(--rule-strong);
+    box-shadow: 2px 2px 0 rgba(36, 28, 23, 0.07);
   }
-  .field:focus {
-    border-color: rgba(31, 95, 91, 0.55);
-    box-shadow: 0 0 0 4px rgba(31, 95, 91, 0.1);
+  .btn-secondary:hover {
     background: #fff;
   }
 
+  /* The quiet secondary beneath a primary. */
+  .btn-ghost {
+    @apply inline-flex min-h-[44px] w-full items-center justify-center
+           text-[14px] font-semibold transition;
+    color: var(--ink-soft);
+  }
+  .btn-ghost:hover {
+    color: var(--ink);
+  }
+
+  /* For a button sitting inline beside other content, where the full 52px
+     thumb target would dominate the row. Declared after every variant so it
+     wins on source order — each variant inlines .btn's own sizing. */
+  .btn-sm {
+    @apply min-h-[42px] shrink-0 whitespace-nowrap px-4 text-[14px];
+  }
+
+  /* --- Inputs ----------------------------------------------------------
+     16px is not a taste decision. Safari zooms the whole page in when a field
+     smaller than 16px takes focus, and never zooms back out — the app was at
+     15px, so every text entry threw the layout sideways. */
+  .field {
+    @apply w-full rounded-[11px] px-3.5 outline-none transition;
+    min-height: 48px;
+    font-size: 16px;
+    background: #fff;
+    border: 1.5px solid var(--rule-strong);
+    color: var(--ink);
+  }
+  .field::placeholder {
+    color: var(--ink-faint);
+  }
+  .field:focus {
+    border-color: var(--teal);
+    box-shadow: 0 0 0 3px rgba(26, 87, 84, 0.13);
+  }
+  select.field {
+    /* Safari otherwise renders a select at its own default height. */
+    @apply appearance-none bg-white pr-9;
+    background-image: linear-gradient(45deg, transparent 50%, var(--ink-faint) 50%),
+      linear-gradient(135deg, var(--ink-faint) 50%, transparent 50%);
+    background-position: calc(100% - 18px) 50%, calc(100% - 13px) 50%;
+    background-size: 5px 5px, 5px 5px;
+    background-repeat: no-repeat;
+  }
+  textarea.field {
+    @apply py-3;
+    min-height: 0;
+  }
+
   .label {
-    @apply mb-1.5 block text-[11px] font-bold uppercase tracking-[0.1em] text-ink/40;
+    font-family: var(--font-mono), ui-monospace, monospace;
+    @apply mb-1.5 block text-[10.5px] font-medium uppercase tracking-[0.13em];
+    color: var(--ink-faint);
   }
 
   .chip {
-    @apply inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium;
+    @apply inline-flex min-h-[34px] items-center gap-1.5 rounded-[9px] px-3 text-[13px] font-medium;
+  }
+
+  /* --- Disclosures -----------------------------------------------------
+     Members and activity are housekeeping. They were cards of the same weight
+     as the balances, which made the group screen six identical panels with no
+     hierarchy and a very long scroll. */
+  .fold > summary {
+    @apply flex cursor-pointer list-none items-center justify-between py-1;
+  }
+  .fold > summary::-webkit-details-marker {
+    display: none;
+  }
+  .fold > summary::after {
+    content: "";
+    width: 7px;
+    height: 7px;
+    border-right: 1.5px solid var(--ink-faint);
+    border-bottom: 1.5px solid var(--ink-faint);
+    transform: rotate(45deg) translate(-2px, -2px);
+    transition: transform 0.15s;
+  }
+  .fold[open] > summary::after {
+    transform: rotate(225deg) translate(-1px, -1px);
   }
 }
 
-/* Respect a reduced-transparency preference: glass becomes opaque rather
-   than merely less blurred, so contrast never depends on the wash behind it. */
-@media (prefers-reduced-transparency: reduce) {
-  .card {
-    background: #fff !important;
-    backdrop-filter: none !important;
-    -webkit-backdrop-filter: none !important;
-  }
+/* --- Safe areas ----------------------------------------------------------
+   `viewport-fit: cover` in layout.tsx lets the page paint under the notch and
+   the home indicator; these keep content out from under them. On a device with
+   no insets every one of these resolves to the plain fallback. */
+.safe-top {
+  padding-top: env(safe-area-inset-top);
+}
+.safe-bottom {
+  padding-bottom: calc(env(safe-area-inset-bottom) + 3.5rem);
+}
+.safe-x {
+  padding-left: max(1.25rem, env(safe-area-inset-left));
+  padding-right: max(1.25rem, env(safe-area-inset-right));
 }
 
 @keyframes fadeUp {

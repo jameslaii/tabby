@@ -7,9 +7,9 @@ import { TabbyMark } from "./Logo";
 /**
  * Onboarding — the hero-moment genre.
  *
- * One idea per screen: a floating glass preview up top, an eyebrow pill, a
- * large centred headline, a supporting line, and a single black CTA. The
- * layout stays fixed across steps so only the content changes between them.
+ * One idea per screen: a small preview of the real interface, an eyebrow, a
+ * large centred headline, a supporting line, and a single dark CTA. The layout
+ * stays fixed across steps so only the content changes between them.
  */
 
 interface Step {
@@ -80,21 +80,27 @@ export function Onboarding({ hasGroups }: { hasGroups: boolean }) {
         Step {index + 1} of {steps.length}
       </p>
 
-      {/* Floating preview. */}
-      <div className="flex flex-1 items-center justify-center py-8">
-        <div key={index} className="animate-[fadeUp_450ms_ease-out]">
-          {step.preview}
+      {/* Preview and copy are centred as one block rather than pushed to
+          opposite ends of the screen. Giving the preview its own `flex-1` put
+          a growing void between the picture and the sentence explaining it,
+          which on a tall window left the two reading as unrelated. */}
+      <div className="flex flex-1 flex-col justify-center gap-9 py-8">
+        <div className="flex justify-center">
+          <div key={index} className="animate-[fadeUp_450ms_ease-out]">
+            {step.preview}
+          </div>
         </div>
-      </div>
 
-      {/* Copy block. */}
-      <div className="text-center">
-        <span className="eyebrow">
-          <span aria-hidden="true">{step.eyebrowIcon}</span>
-          {step.eyebrow}
-        </span>
-        <h1 className="display mt-4 text-balance">{step.headline}</h1>
-        <p className="lede mx-auto mt-3 max-w-[19rem] text-balance">{step.lede}</p>
+        <div className="text-center">
+          <span className="eyebrow">
+            <span aria-hidden="true">{step.eyebrowIcon}</span>
+            {step.eyebrow}
+          </span>
+          <h1 className="display mt-4 text-balance">{step.headline}</h1>
+          <p className="lede mx-auto mt-3 max-w-[19rem] text-balance">
+            {step.lede}
+          </p>
+        </div>
       </div>
 
       <div className="mt-8">
@@ -122,8 +128,8 @@ export function Onboarding({ hasGroups }: { hasGroups: boolean }) {
 }
 
 /* --- Previews ---------------------------------------------------------
-   Small glass compositions rather than illustrations, so each step shows
-   the actual interface it's describing. */
+   Small compositions of real cards rather than illustrations, so each step
+   shows the actual interface it's describing. */
 
 function WelcomePreview() {
   return (
@@ -133,17 +139,17 @@ function WelcomePreview() {
       <div className="card flex items-center gap-3.5 p-4">
         <TabbyMark size={46} />
         <div>
-          <div className="text-lg font-extrabold leading-none">Tabby</div>
-          <div className="mt-1.5 text-[10px] font-bold uppercase tracking-[0.14em] text-teal">
+          <div className="font-display text-lg font-extrabold leading-none">Tabby</div>
+          <div className="mt-1.5 font-mono text-[9.5px] font-medium uppercase tracking-[0.14em] text-teal">
             Split the bill
           </div>
         </div>
       </div>
       <div className="card card-data relative -mt-2 ml-auto w-[10.5rem] p-3.5">
-        <div className="text-[10px] font-bold uppercase tracking-wider text-ink/40">
+        <div className="card-title">
           You're owed
         </div>
-        <div className="mt-0.5 text-2xl font-extrabold text-teal">$75.00</div>
+        <div className="money mt-1 text-2xl font-medium text-teal">$75.00</div>
       </div>
     </div>
   );
@@ -169,7 +175,7 @@ function ReceiptPreview() {
             style={{ animationDelay: `${150 + i * 130}ms` }}
           >
             <span className="text-ink/70">{name}</span>
-            <span className="font-semibold tabular-nums">{price}</span>
+            <span className="money text-[13px] font-medium">{price}</span>
           </li>
         ))}
       </ul>
@@ -206,7 +212,7 @@ function SettlePreview() {
   return (
     <div className="relative w-[17rem]">
       <div className="card card-data p-4">
-        <div className="text-[10px] font-bold uppercase tracking-wider text-ink/40">
+        <div className="card-title">
           Each person owes
         </div>
         <ul className="mt-2.5 space-y-2">
@@ -217,7 +223,7 @@ function SettlePreview() {
               style={{ animationDelay: `${120 + i * 120}ms` }}
             >
               <span>{name}</span>
-              <span className="font-bold tabular-nums">{amount}</span>
+              <span className="money text-[13px] font-medium">{amount}</span>
             </li>
           ))}
         </ul>

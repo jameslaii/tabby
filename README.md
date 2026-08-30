@@ -69,26 +69,60 @@ reproduced failures; `tests/splits.test.ts` pins each one.
 Defined in `app/globals.css` as a handful of component classes, so screens
 mostly inherit it rather than restating it.
 
-- **Surface** — a fixed warm gradient wash (peach top-left, blush top-right,
-  cooling to white) with a dotted texture that fades out by mid-screen, so it
-  never sits behind a column of figures.
-- **Cards** — frosted glass (`backdrop-filter`, 24px radius, no hard border).
-  `.card-data` raises the opacity for any panel carrying money; translucency
-  behind a balance costs contrast, and balances are the one thing that must
-  never be ambiguous. Under `prefers-reduced-transparency` the glass goes fully
-  opaque rather than merely less blurred.
-- **Type** — `.display` for hero headlines (clamped 30–38px, weight 800,
-  leading 1.06), `.card-title` at 17px for section headings inside cards. Big
-  type is reserved for the one hero moment per screen; card headings must not
-  compete with it.
-- **Buttons** — `.btn-primary` is black, with `.btn-ghost` as the quiet
-  secondary beneath it. That keeps ginger meaningful: it stays an accent on
-  small elements instead of becoming the loudest thing on every screen.
-- **`.eyebrow`** — the small outlined pill that sits above a headline.
+The organising idea is **print, not glass**: this is an app about bills, so it
+is set like one. It used to be a peach gradient wash under frosted-glass cards,
+which is the house style of roughly every app shipped since 2022 — and which
+cost real scroll performance on a phone, since six stacked `backdrop-filter`
+panels over two fixed gradient layers means the compositor re-rasterises six
+blurs per frame.
+
+- **Type** — three faces, three jobs. **Fraunces** carries the one headline per
+  screen (`.display`). **DM Mono** carries every figure (`.money`, tabular by
+  construction) and every small label (`.card-title`, `.label`, `.eyebrow`),
+  because money set in a proportional face reads as marketing and money set in
+  a monospace reads as a ledger. **Instrument Sans** does the ordinary talking.
+  All three are loaded through `next/font`; the stack previously *named*
+  Nunito and Quicksand without ever fetching them, so the app fell through to
+  whatever each device happened to have — the iOS system rounded face on a
+  phone, something else on a laptop — and had no typeface of its own.
+- **Surface** — flat warm paper with a faint grid that fades out before
+  mid-screen, so it is never behind a column of figures. One compositor layer.
+- **Cards** — opaque stock, 14px radius, a 1.5px rule and a hard blurless
+  offset shadow. A blurred shadow says decoration; a hard one says object.
+  `.card-data` sits a little more firmly for any panel carrying money.
+- **The receipt** — balances are literally a bill, so `.receipt` gives them
+  torn top and bottom edges and `.leader` rows carry the eye from a name,
+  along a dotted leader, to a right-aligned monospaced figure.
+- **Buttons** — squared to 13px rather than a full pill, 52px tall, with a 2px
+  hard shadow that collapses under the press. `.btn-sm` is the inline variant.
+  Primary is ink; that keeps ginger meaningful as an accent instead of the
+  loudest thing on every screen.
+- **Folds** — members and activity are `<details>`, not cards. They were
+  panels of the same weight as the balances, which made the group screen six
+  near-identical blocks with no hierarchy.
+
+### Built for a phone first
+
+- **Inputs are 16px.** Not taste: Safari zooms the whole page in when a field
+  under 16px takes focus and never zooms back out. Every field was 15px, so
+  every text entry threw the layout sideways.
+- **Safe areas.** `viewport-fit: cover` lets the page paint under the notch and
+  the home indicator; `.safe-top` / `.safe-bottom` / `.safe-x` keep content
+  clear of both. Without the first, the insets are always zero.
+- **No tap highlight.** The grey box iOS flashes over a tapped link is the
+  loudest signal that something is a web page; buttons have their own
+  `:active` state instead.
+- **`overscroll-behavior: none`** — rubber-banding past the top used to expose
+  plain white behind the fixed gradient.
+- **`NavBar` puts back in the corner a thumb reaches for**, on every screen
+  below the root, and derives the parent from the route rather than calling
+  `router.back()` — history is whatever the browser holds, so on a deep link
+  back leaves the app. Each screen used to print its own `← Group name` inside
+  the content, which moved the control around and scrolled it away.
 
 `/welcome` is a four-step onboarding flow in the hero genre — one idea per
-screen, a floating glass preview, and a single black CTA. It's also where a
-first-run user lands when they have no groups yet.
+screen, a small preview of the real interface, and a single dark CTA. It's also
+where a first-run user lands when they have no groups yet.
 
 ## Where the data lives
 

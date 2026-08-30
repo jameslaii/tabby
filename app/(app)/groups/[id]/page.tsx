@@ -42,15 +42,17 @@ export default function GroupPage() {
   const alone = group.members.length < 2;
 
   return (
-    <main className="space-y-4">
-      {/* Hero — the group's headline state, sitting on the wash rather than
-          inside a coloured block. */}
-      <section className="pb-6 pt-2 text-center">
+    <main className="space-y-4 pt-5">
+      {/* Hero — the group's headline state, sitting on the paper rather than
+          inside a panel. One figure, set large and monospaced. */}
+      <section className="pb-5 text-center">
         <span className="eyebrow">
-          <span aria-hidden="true">{group.emoji}</span>
+          <span aria-hidden="true" className="not-italic">
+            {group.emoji}
+          </span>
           {group.name}
         </span>
-        <h1 className="display mt-4 text-balance">
+        <h1 className="display mt-3.5 text-balance">
           {me === null
             ? "You're not in this group."
             : myNet === 0
@@ -61,7 +63,7 @@ export default function GroupPage() {
         </h1>
         {myNet !== 0 && (
           <div
-            className={`mt-2 text-[46px] font-extrabold leading-none tracking-tight ${
+            className={`money mt-2.5 text-[44px] font-medium leading-none ${
               myNet > 0 ? "text-teal" : "text-ginger-dark"
             }`}
           >
@@ -80,7 +82,7 @@ export default function GroupPage() {
       {/* A group of one can't split anything, so that's the only thing worth
           asking for until it's fixed. */}
       {alone ? (
-        <section className="card border border-ginger/30 bg-ginger/5">
+        <section className="card" style={{ borderColor: "rgba(217,115,13,.35)" }}>
           <h2 className="card-title">Add the others first</h2>
           <p className="mt-1.5 text-sm text-ink/60">
             There&rsquo;s only you in {group.name}, so there&rsquo;s nobody to
@@ -91,70 +93,89 @@ export default function GroupPage() {
           </div>
         </section>
       ) : (
-        <div>
+        <div className="space-y-1">
           <Link href={`/groups/${id}/receipt`} className="btn-primary w-full">
             <span aria-hidden="true">📸</span> Scan a receipt
           </Link>
-          <Link href={`/groups/${id}/add`} className="btn-ghost mt-1 block">
+          <Link href={`/groups/${id}/add`} className="btn-ghost">
             or add it manually
           </Link>
         </div>
       )}
 
-      <section className="card card-data">
-        <h2 className="card-title">Balances</h2>
-        <ul className="mt-4 space-y-2.5">
-          {balances.map((b) => (
-            <li key={b.memberId} className="flex items-center justify-between">
-              <span className="text-[15px]">{b.displayName}</span>
-              <span
-                className={`text-[15px] font-semibold tabular-nums ${
-                  b.net > 0
-                    ? "text-teal"
-                    : b.net < 0
-                      ? "text-ginger-dark"
-                      : "text-ink/35"
-                }`}
-              >
-                {b.net === 0
-                  ? "settled"
-                  : b.net > 0
-                    ? `is owed ${formatAbs(b.net)}`
-                    : `owes ${formatAbs(b.net)}`}
-              </span>
-            </li>
-          ))}
-        </ul>
+      {/* --- The bill ------------------------------------------------------
+          Balances are the one thing on this screen that is literally a
+          receipt, so they're set like one: torn edges, monospaced figures,
+          and dotted leaders carrying the eye from a name to its amount. */}
+      <section>
+        <div className="tear" aria-hidden="true" />
+        <div className="receipt px-5 pb-1 pt-1">
+          <h2 className="card-title">Balances</h2>
+          <ul className="mt-3.5 space-y-2.5">
+            {balances.map((b) => (
+              <li key={b.memberId} className="leader">
+                <span className="text-[15px]">{b.displayName}</span>
+                <span className="leader-dots" aria-hidden="true" />
+                {/* The direction reads before the figure, the way a ledger
+                    line does — "owes $46.10", not "$46.10 owes". */}
+                <span className="shrink-0 font-mono text-[10px] uppercase tracking-[0.08em] text-ink/40">
+                  {b.net === 0 ? "" : b.net > 0 ? "is owed" : "owes"}
+                </span>
+                <span
+                  className={`money shrink-0 text-[15px] ${
+                    b.net > 0
+                      ? "text-teal"
+                      : b.net < 0
+                        ? "text-ginger-dark"
+                        : "text-ink/35"
+                  }`}
+                >
+                  {b.net === 0 ? "settled" : formatAbs(b.net)}
+                </span>
+              </li>
+            ))}
+          </ul>
 
-        <div className="mt-5 rounded-2xl bg-paper/35 p-4">
-          <h3 className="text-[11px] font-bold uppercase tracking-[0.1em] text-ink/45">
-            Simplest way to settle
-          </h3>
-          {transfers.length === 0 ? (
-            <p className="mt-2 text-sm text-ink/55">
-              Nothing to settle — everyone&rsquo;s square.
-            </p>
-          ) : (
-            <>
-              <ul className="mt-2.5 space-y-1.5">
-                {transfers.map((t, i) => (
-                  <li key={i} className="text-[15px]">
-                    <span className="font-semibold">{nameOf(t.fromMemberId)}</span>{" "}
-                    pays{" "}
-                    <span className="font-semibold">{nameOf(t.toMemberId)}</span>{" "}
-                    <span className="font-extrabold tabular-nums text-teal">
-                      {formatCents(t.amount)}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-              <p className="mt-3 text-xs text-ink/45">
-                {transfers.length} payment{transfers.length === 1 ? "" : "s"}{" "}
-                instead of settling every expense one by one.
+          <div
+            className="mt-5 border-t border-dashed pt-4"
+            style={{ borderColor: "var(--rule-strong)" }}
+          >
+            <h3 className="card-title">Simplest way to settle</h3>
+            {transfers.length === 0 ? (
+              <p className="mt-2 text-sm text-ink/55">
+                Nothing to settle — everyone&rsquo;s square.
               </p>
-            </>
-          )}
+            ) : (
+              <>
+                <ul className="mt-3 space-y-2">
+                  {transfers.map((t, i) => (
+                    <li key={i} className="leader text-[15px]">
+                      <span>
+                        <span className="font-semibold">
+                          {nameOf(t.fromMemberId)}
+                        </span>
+                        <span className="text-ink/45"> pays </span>
+                        <span className="font-semibold">
+                          {nameOf(t.toMemberId)}
+                        </span>
+                      </span>
+                      <span className="leader-dots" aria-hidden="true" />
+                      <span className="money shrink-0 font-medium text-teal">
+                        {formatCents(t.amount)}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+                <p className="mt-3 text-xs text-ink/45">
+                  {transfers.length} payment{transfers.length === 1 ? "" : "s"}{" "}
+                  instead of settling every expense one by one.
+                </p>
+              </>
+            )}
+          </div>
+          <div className="h-4" />
         </div>
+        <div className="tear tear-bottom" aria-hidden="true" />
       </section>
 
       {expenses.length > 0 && <InsightsPanel groupId={id} />}
@@ -166,32 +187,32 @@ export default function GroupPage() {
             Nothing yet. Scan a receipt and it&rsquo;ll show up here.
           </p>
         ) : (
-          <ul className="mt-3 divide-y divide-ink/8">
+          <ul className="mt-2">
             {expenses.map((e) => (
-              <li key={e.id}>
+              <li
+                key={e.id}
+                className="border-t first:border-t-0"
+                style={{ borderColor: "var(--rule)" }}
+              >
                 <Link
                   href={`/groups/${id}/expenses/${e.id}`}
-                  className="-mx-2 flex items-start gap-3 rounded-xl px-2 py-3 transition hover:bg-white/50"
+                  className="-mx-2 flex items-center gap-3 rounded-[11px] px-2 py-3 transition active:bg-paper"
                 >
-                  <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-paper/40 text-base">
+                  <div
+                    className="grid h-10 w-10 shrink-0 place-items-center rounded-[10px] text-base"
+                    style={{ background: "var(--tape)" }}
+                  >
                     {e.category ? CATEGORY_EMOJI[e.category] : "🧾"}
                   </div>
                   <div className="min-w-0 flex-1">
-                    <div className="font-semibold">{e.description}</div>
-                    <div className="text-[12px] text-ink/45">
-                      {e.category ?? "Uncategorized"} ·{" "}
-                      {e.payers.map((p) => nameOf(p.memberId)).join(" & ")} paid ·{" "}
-                      {e.expenseDate}
+                    <div className="truncate font-semibold">{e.description}</div>
+                    <div className="truncate font-mono text-[10.5px] uppercase tracking-[0.06em] text-ink/40">
+                      {e.payers.map((p) => nameOf(p.memberId)).join(" & ")} paid
                       {e.lineItems.length > 0 && ` · ${e.lineItems.length} items`}
                     </div>
                   </div>
-                  <div className="shrink-0 text-right">
-                    <div className="font-bold tabular-nums">
-                      {formatCents(e.totalAmount, e.currency)}
-                    </div>
-                    <div className="text-[11px] font-semibold text-ink/30">
-                      edit
-                    </div>
+                  <div className="money shrink-0 text-[15px] font-medium">
+                    {formatCents(e.totalAmount, e.currency)}
                   </div>
                 </Link>
               </li>
@@ -211,11 +232,14 @@ export default function GroupPage() {
             />
           </div>
           {settlements.length > 0 && (
-            <ul className="mt-5 space-y-1.5 border-t border-ink/8 pt-4">
+            <ul
+              className="mt-5 space-y-1.5 border-t pt-4"
+              style={{ borderColor: "var(--rule)" }}
+            >
               {settlements.map((s) => (
                 <li key={s.id} className="text-sm text-ink/55">
                   {nameOf(s.fromMember)} paid {nameOf(s.toMember)}{" "}
-                  <span className="font-semibold text-ink">
+                  <span className="money font-medium text-ink">
                     {formatCents(s.amount, s.currency)}
                   </span>
                 </li>
@@ -225,34 +249,46 @@ export default function GroupPage() {
         </section>
       )}
 
-      <section className="card">
-        <h2 className="card-title">Members</h2>
+      {/* Housekeeping. These were full cards carrying the same weight as the
+          balances, which made the screen six near-identical panels and a very
+          long scroll. Folded away, they're one tap from where they were. */}
+      <details className="card fold">
+        <summary>
+          <h2 className="card-title">Members · {group.members.length}</h2>
+        </summary>
         <ul className="mb-4 mt-4 flex flex-wrap gap-2">
           {group.members.map((m) => (
             <li
               key={m.id}
-              className={`chip ${
-                m.isGhost ? "bg-paper/50 text-ink/70" : "bg-teal/10 text-teal"
-              }`}
+              className="chip"
+              style={{
+                background: m.isGhost ? "var(--tape)" : "rgba(26,87,84,.09)",
+                color: m.isGhost ? "var(--ink-soft)" : "var(--teal)",
+              }}
             >
               {m.displayName}
             </li>
           ))}
         </ul>
         {!alone && <AddMemberForm groupId={id} />}
-      </section>
+      </details>
 
-      <section className="card">
-        <h2 className="card-title">Activity</h2>
+      <details className="card fold">
+        <summary>
+          <h2 className="card-title">Activity</h2>
+        </summary>
         <ul className="mt-4 space-y-2.5">
           {getActivity(db, id).map((a) => (
             <li key={a.id} className="flex gap-2.5 text-sm">
-              <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-ginger" />
+              <span
+                className="mt-[7px] h-1.5 w-1.5 shrink-0 rounded-full"
+                style={{ background: "var(--ginger)" }}
+              />
               <span className="text-ink/65">{a.summary}</span>
             </li>
           ))}
         </ul>
-      </section>
+      </details>
     </main>
   );
 }
