@@ -69,6 +69,39 @@ export function formatAbs(cents: Cents, currency = "USD"): string {
   return formatCents(Math.abs(cents), currency);
 }
 
+/**
+ * Convert `amount` (minor units of `from`) into minor units of `to`.
+ *
+ * `rate` is whole units of `to` per one whole unit of `from` — the shape every
+ * rate source quotes. The two currencies can have different numbers of decimal
+ * places, which is why this goes via whole units rather than scaling the minor
+ * figure directly: 40.00 EUR into dong is 4000 EUR-cents -> 40 EUR -> 1,080,000
+ * dong, and the dong has no minor unit to multiply by.
+ */
+export function convertMinor(
+  amount: Cents,
+  from: string,
+  to: string,
+  rate: number,
+): Cents {
+  if (!Number.isFinite(rate) || rate <= 0) {
+    throw new Error(`Exchange rate must be a positive number, got ${rate}`);
+  }
+  if (from === to) return amount;
+  const whole = amount / minorPerUnit(from);
+  const target = whole * rate * minorPerUnit(to);
+  return Math.sign(target) * Math.round(Math.abs(target));
+}
+
+/**
+ * Minor units back to the plain string a form field wants: "1500" in yen,
+ * "15.00" in dollars. The naive `(cents / 100).toFixed(2)` shows a yen bill at
+ * a hundredth of its value and invents two decimals a yen does not have.
+ */
+export function toAmountInput(cents: Cents, currency = "USD"): string {
+  return (cents / minorPerUnit(currency)).toFixed(minorUnits(currency));
+}
+
 export function sumCents(values: Cents[]): Cents {
   return values.reduce((a, b) => a + b, 0);
 }

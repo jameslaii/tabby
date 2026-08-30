@@ -8,7 +8,14 @@ import {
   updateExpense,
 } from "../lib/db";
 import { useStore } from "./StoreProvider";
-import { formatCents, toCents } from "../lib/money";
+import {
+  convertMinor,
+  formatCents,
+  toAmountInput,
+  toCents,
+} from "../lib/money";
+import { CURRENCIES } from "../lib/currencies";
+import { useRates } from "./useRates";
 import { CATEGORIES, CATEGORY_EMOJI, isCategory } from "../lib/categories";
 import type { Expense, GroupMember } from "../lib/types";
 
@@ -34,7 +41,13 @@ export function ExpenseEditor({
   const { update } = useStore();
 
   const [description, setDescription] = useState(expense.description);
-  const [amount, setAmount] = useState((expense.totalAmount / 100).toFixed(2));
+  // Edited in whatever currency it was entered in. The stored total is always
+  // the group's currency, so an imported bill is shown as it was written.
+  const billed = expense.originalCurrency ?? expense.currency;
+  const [billCurrency, setBillCurrency] = useState(billed);
+  const [amount, setAmount] = useState(
+    toAmountInput(expense.originalAmount ?? expense.totalAmount, billed),
+  );
   const [category, setCategory] = useState<string>(expense.category ?? "");
   const [payerIds, setPayerIds] = useState<string[]>(
     expense.payers.map((p) => p.memberId),
@@ -45,16 +58,37 @@ export function ExpenseEditor({
   const [error, setError] = useState<string | null>(null);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
 
+  const foreign = billCurrency !== expense.currency;
+  const rates = useRates(expense.currency, foreign);
+  // The rate this expense was saved with wins while the currency is unchanged.
+  // Re-rating an untouched bill at today's price would un-settle a settled
+  // group, which is the whole reason the rate is frozen in the first place.
+  const frozen =
+    billCurrency === expense.originalCurrency ? expense.exchangeRate : undefined;
+  const rate = foreign ? (frozen ?? rates.rateFrom(billCurrency)) : 1;
+
+  /** The amount as the group will carry it, in the group's own currency. */
+  function inGroupCurrency(): number | null {
+    try {
+      const entered = toCents(amount, billCurrency);
+      if (!foreign) return entered;
+      if (!rate) return null;
+      return convertMinor(entered, billCurrency, expense.currency, rate);
+    } catch {
+      return null;
+    }
+  }
+
   const nameOf = (id: string) =>
     members.find((m) => m.id === id)?.displayName ?? "Someone";
 
-  // Warn before an itemized split is replaced, not after.
-  let willReset = false;
-  try {
-    willReset = splitWillReset(expense, toCents(amount), participantIds);
-  } catch {
-    willReset = false;
-  }
+  // Warn before an itemized split is replaced, not after. Compared in the
+  // group's currency, which is the only denomination the stored split knows.
+  const groupCents = inGroupCurrency();
+  const willReset =
+    groupCents === null
+      ? false
+      : splitWillReset(expense, groupCents, participantIds);
 
   function toggle(
     id: string,
@@ -71,6 +105,8 @@ export function ExpenseEditor({
         description,
         category: isCategory(category) ? category : null,
         amount,
+        currency: foreign ? billCurrency : expense.currency,
+        exchangeRate: foreign && rate ? rate : undefined,
         payerIds,
         participantIds,
       }),
@@ -102,18 +138,32 @@ export function ExpenseEditor({
           />
         </div>
 
-        <div className="grid grid-cols-2 gap-3">
+        <div className="space-y-3">
           <div>
             <label className="label" htmlFor="edit-amount">
               Amount
             </label>
-            <input
-              id="edit-amount"
-              inputMode="decimal"
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-              className="field"
-            />
+            <div className="flex gap-2">
+              <input
+                id="edit-amount"
+                inputMode="decimal"
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                className="field flex-1"
+              />
+              <select
+                className="field w-[6.2rem] shrink-0"
+                value={billCurrency}
+                onChange={(e) => setBillCurrency(e.target.value)}
+                aria-label="Currency this bill was in"
+              >
+                {CURRENCIES.map((c) => (
+                  <option key={c.code} value={c.code}>
+                    {c.code}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
           <div>
             <label className="label" htmlFor="edit-category">
@@ -195,9 +245,43 @@ export function ExpenseEditor({
           </p>
         )}
 
+        {foreign && (
+          <div
+            className="rounded-[11px] px-3.5 py-3 text-sm"
+            style={{ background: "var(--paper)" }}
+          >
+            {!rate && rates.loading && (
+              <span className="text-ink/55">Fetching today&rsquo;s rate&hellip;</span>
+            )}
+            {!rate && !rates.loading && (
+              <span className="text-ginger-dark">
+                {rates.error ?? `No rate available for ${billCurrency}.`}
+              </span>
+            )}
+            {rate && (
+              <>
+                <div className="flex items-baseline justify-between gap-3">
+                  <span className="text-ink/55">Charged to the group</span>
+                  <span className="money font-medium">
+                    {groupCents === null
+                      ? "—"
+                      : formatCents(groupCents, expense.currency)}
+                  </span>
+                </div>
+                <p className="mt-1.5 font-mono text-[10.5px] uppercase tracking-[0.09em] text-ink/40">
+                  1 {billCurrency} = {rate.toPrecision(6)} {expense.currency}
+                  {frozen ? " · saved with this expense" : " · today"}
+                </p>
+              </>
+            )}
+          </div>
+        )}
+
         {error && <p className="text-sm text-ginger-dark">{error}</p>}
 
-        <button className="btn-primary w-full">Save changes</button>
+        <button className="btn-primary w-full" disabled={foreign && !rate}>
+          Save changes
+        </button>
       </form>
 
       <section className="card">

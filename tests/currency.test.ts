@@ -1,14 +1,17 @@
 import { describe, expect, it } from "vitest";
-import { formatCents, toCents, apportion } from "../lib/money";
+import { formatCents, toCents, apportion, convertMinor } from "../lib/money";
 import { minorUnits, isCurrency, DEFAULT_CURRENCY } from "../lib/currencies";
 import {
   addManualExpense,
   addSettlement,
   createGroup,
   emptyDb,
+  getExpense,
   getExpenses,
   getSettlements,
+  updateExpense,
 } from "../lib/db";
+import { computeBalances } from "../lib/balances";
 
 /**
  * Money in a currency that isn't the dollar.
@@ -134,5 +137,131 @@ describe("a group carries its currency", () => {
     const expense = getExpenses(added.db, group.id)[0];
     expect(expense.totalAmount).toBe(3000);
     expect(expense.splits.map((s) => s.amountOwed)).toEqual([1500, 1500]);
+  });
+});
+
+describe("a bill in another currency", () => {
+  const tokyo = () =>
+    createGroup(emptyDb(), {
+      name: "Tokyo",
+      emoji: "✈️",
+      memberNames: ["Sarah"],
+      currency: "JPY",
+    });
+
+  it("converts across currencies with different decimal places", () => {
+    // 40.00 EUR -> 4000 EUR-cents -> 40 EUR -> 1,080,000 dong, which has no
+    // minor unit to multiply by.
+    expect(convertMinor(4000, "EUR", "VND", 27000)).toBe(1_080_000);
+    // And back the other way: 1,080,000 dong at 1/27000 is 40 EUR = 4000 cents.
+    expect(convertMinor(1_080_000, "VND", "EUR", 1 / 27000)).toBe(4000);
+    // Same currency is a no-op regardless of the rate.
+    expect(convertMinor(4000, "EUR", "EUR", 999)).toBe(4000);
+  });
+
+  it("refuses a rate that isn't a positive number", () => {
+    expect(() => convertMinor(100, "USD", "JPY", 0)).toThrow(/positive/i);
+    expect(() => convertMinor(100, "USD", "JPY", -3)).toThrow(/positive/i);
+    expect(() => convertMinor(100, "USD", "JPY", NaN)).toThrow(/positive/i);
+  });
+
+  it("stores the group's currency as the total, and the bill as it was", () => {
+    const { db, group } = tokyo();
+    const [you, sarah] = group.members;
+
+    const added = addManualExpense(db, {
+      groupId: group.id,
+      description: "Duty free",
+      category: null,
+      amount: "40.00",
+      currency: "EUR",
+      exchangeRate: 170, // 170 yen to the euro
+      payerId: you.id,
+      participantIds: [you.id, sarah.id],
+    });
+    expect(added.error).toBeUndefined();
+
+    const expense = getExpenses(added.db, group.id)[0];
+    expect(expense.currency).toBe("JPY");
+    expect(expense.totalAmount).toBe(6800); // 40 * 170 yen
+    expect(expense.originalAmount).toBe(4000); // 40.00 in euro cents
+    expect(expense.originalCurrency).toBe("EUR");
+    expect(expense.exchangeRate).toBe(170);
+    // Splits are in the group's currency and still sum exactly.
+    expect(expense.splits.map((s) => s.amountOwed)).toEqual([3400, 3400]);
+  });
+
+  it("refuses a foreign bill with no rate rather than guessing one", () => {
+    const { db, group } = tokyo();
+    const [you, sarah] = group.members;
+    const result = addManualExpense(db, {
+      groupId: group.id,
+      description: "Duty free",
+      category: null,
+      amount: "40.00",
+      currency: "EUR",
+      payerId: you.id,
+      participantIds: [you.id, sarah.id],
+    });
+    expect(result.error).toMatch(/exchange rate/i);
+    expect(result.db).toBe(db);
+  });
+
+  const withForeign = () => {
+    const { db, group } = tokyo();
+    const [you, sarah] = group.members;
+    const added = addManualExpense(db, {
+      groupId: group.id,
+      description: "Duty free",
+      category: null,
+      amount: "40.00",
+      currency: "EUR",
+      exchangeRate: 170,
+      payerId: you.id,
+      participantIds: [you.id, sarah.id],
+    });
+    return { db: added.db, group, expense: getExpenses(added.db, group.id)[0] };
+  };
+
+  it("keeps the frozen rate when an edit doesn't mention currency", () => {
+    const { db, expense } = withForeign();
+    const result = updateExpense(db, expense.id, {
+      description: "Duty free, Charles de Gaulle",
+      category: expense.category,
+      amount: "50.00",
+      payerIds: expense.payers.map((p) => p.memberId),
+      participantIds: expense.splits.map((s) => s.memberId),
+    });
+
+    const after = getExpense(result.db, expense.id)!;
+    // Re-rated at today's price, a group that had squared up would come apart.
+    expect(after.exchangeRate).toBe(170);
+    expect(after.originalCurrency).toBe("EUR");
+    expect(after.originalAmount).toBe(5000);
+    expect(after.totalAmount).toBe(8500);
+  });
+
+  it("stops claiming a conversion once it's re-entered in the group currency", () => {
+    const { db, expense } = withForeign();
+    const result = updateExpense(db, expense.id, {
+      description: expense.description,
+      category: expense.category,
+      amount: "6800",
+      currency: "JPY",
+      payerIds: expense.payers.map((p) => p.memberId),
+      participantIds: expense.splits.map((s) => s.memberId),
+    });
+
+    const after = getExpense(result.db, expense.id)!;
+    expect(after.totalAmount).toBe(6800);
+    expect(after.originalCurrency).toBeUndefined();
+    expect(after.originalAmount).toBeUndefined();
+    expect(after.exchangeRate).toBeUndefined();
+  });
+
+  it("leaves balances summing to zero after a converted expense", () => {
+    const { db, group } = withForeign();
+    const balances = computeBalances(group.members, getExpenses(db, group.id), []);
+    expect(balances.reduce((sum, b) => sum + b.net, 0)).toBe(0);
   });
 });

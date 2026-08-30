@@ -53,8 +53,20 @@ export interface Expense {
   category: Category | null;
   /** Where the category came from — an AI guess must never overwrite a human choice. */
   categorySource: "ai" | "manual" | null;
+  /** Always in the group's currency, so balances never mix denominations. */
   totalAmount: Cents;
   currency: string;
+  /**
+   * What the bill actually said, when it was in some other currency.
+   *
+   * The rate is frozen here at the moment the expense is entered and never
+   * recomputed. Recomputing it would mean a group that squared up last week
+   * quietly comes unsettled because the euro moved overnight.
+   */
+  originalAmount?: Cents;
+  originalCurrency?: string;
+  /** Whole units of `currency` per one whole unit of `originalCurrency`. */
+  exchangeRate?: number;
   expenseDate: string;
   sourceType: "manual" | "receipt_ai";
   receiptImageUrl: string | null;

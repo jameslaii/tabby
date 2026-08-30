@@ -26,7 +26,11 @@ export default function AddExpensePage() {
           Leave the category on Auto and Tabby will work it out.
         </p>
       </div>
-      <ManualExpenseForm groupId={id} members={group.members} />
+      <ManualExpenseForm
+        groupId={id}
+        members={group.members}
+        currency={group.defaultCurrency}
+      />
     </main>
   );
 }

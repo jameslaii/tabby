@@ -6,13 +6,19 @@ import { addManualExpense } from "../lib/db";
 import { useStore } from "./StoreProvider";
 import type { GroupMember } from "../lib/types";
 import { CATEGORIES, CATEGORY_EMOJI, isCategory } from "../lib/categories";
+import { CURRENCIES } from "../lib/currencies";
+import { convertMinor, formatCents, toCents } from "../lib/money";
+import { useRates } from "./useRates";
 
 export function ManualExpenseForm({
   groupId,
   members,
+  currency,
 }: {
   groupId: string;
   members: GroupMember[];
+  /** The group's currency. Bills default to it and rarely leave it. */
+  currency: string;
 }) {
   const router = useRouter();
   const { update } = useStore();
@@ -25,6 +31,25 @@ export function ManualExpenseForm({
     members.map((m) => m.id),
   );
   const [error, setError] = useState<string | null>(null);
+  const [billCurrency, setBillCurrency] = useState(currency);
+  const foreign = billCurrency !== currency;
+  const rates = useRates(currency, foreign);
+
+  const rate = rates.rateFrom(billCurrency);
+
+  // What the group will actually be charged, shown before saving rather than
+  // discovered afterwards.
+  let converted: string | null = null;
+  if (foreign && rate && amount.trim()) {
+    try {
+      converted = formatCents(
+        convertMinor(toCents(amount, billCurrency), billCurrency, currency, rate),
+        currency,
+      );
+    } catch {
+      converted = null;
+    }
+  }
 
   function toggle(memberId: string) {
     setParticipants((current) =>
@@ -38,6 +63,8 @@ export function ManualExpenseForm({
     event.preventDefault();
     const result = update((db) =>
       addManualExpense(db, {
+        currency: foreign ? billCurrency : undefined,
+        exchangeRate: foreign && rate ? rate : undefined,
         groupId,
         description,
         category: isCategory(category) ? category : null,
@@ -69,19 +96,33 @@ export function ManualExpenseForm({
         />
       </div>
 
-      <div className="grid grid-cols-2 gap-3">
+      <div className="space-y-3">
         <div>
           <label className="label" htmlFor="amount">
             Amount
           </label>
-          <input
-            id="amount"
-            inputMode="decimal"
-            value={amount}
-            onChange={(e) => setAmount(e.target.value)}
-            placeholder="0.00"
-            className="field"
-          />
+          <div className="flex gap-2">
+            <input
+              id="amount"
+              inputMode="decimal"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              placeholder="0.00"
+              className="field flex-1"
+            />
+            <select
+              className="field w-[6.2rem] shrink-0"
+              value={billCurrency}
+              onChange={(e) => setBillCurrency(e.target.value)}
+              aria-label="Currency this bill was in"
+            >
+              {CURRENCIES.map((c) => (
+                <option key={c.code} value={c.code}>
+                  {c.code}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
         <div>
           <label className="label" htmlFor="category">
@@ -146,9 +187,46 @@ export function ManualExpenseForm({
         </div>
       </fieldset>
 
+      {foreign && (
+        <div
+          className="rounded-[11px] px-3.5 py-3 text-sm"
+          style={{ background: "var(--paper)" }}
+        >
+          {rates.loading && (
+            <span className="text-ink/55">Fetching today&rsquo;s rate&hellip;</span>
+          )}
+          {rates.error && (
+            <span className="text-ginger-dark">{rates.error}</span>
+          )}
+          {!rates.loading && !rates.error && !rate && (
+            <span className="text-ginger-dark">
+              No rate available for {billCurrency}.
+            </span>
+          )}
+          {rate && (
+            <>
+              <div className="flex items-baseline justify-between gap-3">
+                <span className="text-ink/55">Charged to the group</span>
+                <span className="money font-medium">{converted ?? "—"}</span>
+              </div>
+              <p className="mt-1.5 font-mono text-[10.5px] uppercase tracking-[0.09em] text-ink/40">
+                1 {billCurrency} = {rate.toPrecision(6)} {currency}
+                {rates.asOf ? ` · ${rates.asOf.slice(0, 16)}` : ""}
+              </p>
+              <p className="mt-1.5 text-xs text-ink/45">
+                This rate is saved with the expense and never recalculated, so
+                a group that has settled up stays settled.
+              </p>
+            </>
+          )}
+        </div>
+      )}
+
       {error && <p className="text-sm text-ginger-dark">{error}</p>}
 
-      <button className="btn-primary w-full">Save expense</button>
+      <button className="btn-primary w-full" disabled={foreign && !rate}>
+        Save expense
+      </button>
     </form>
   );
 }

@@ -1,4 +1,4 @@
-import { apportion, toCents, type Cents } from "./money";
+import { apportion, convertMinor, toCents, type Cents } from "./money";
 import { DEFAULT_CURRENCY, isCurrency } from "./currencies";
 import type { Category } from "./categories";
 import type {
@@ -310,6 +310,54 @@ export function removeMember(
   };
 }
 
+/**
+ * Read an amount that may have been entered in a currency other than the
+ * group's, and hand back both figures plus the rate that joined them.
+ *
+ * Everything downstream — splits, payers, balances, settling up — only ever
+ * sees `totalCents` in the group's own currency. All of the currency risk is
+ * spent here, at the door, exactly once.
+ */
+function readAmount(
+  amount: string,
+  groupCurrency: string,
+  entered?: { currency?: string; rate?: number },
+):
+  | { ok: true; totalCents: Cents; original?: Partial<Expense> }
+  | { ok: false; error: string } {
+  const from = entered?.currency;
+
+  if (!from || from === groupCurrency) {
+    try {
+      return { ok: true, totalCents: toCents(amount, groupCurrency) };
+    } catch {
+      return { ok: false, error: "That amount doesn't look like a number." };
+    }
+  }
+
+  if (!isCurrency(from)) {
+    return { ok: false, error: "That isn't a currency Tabby knows." };
+  }
+  const rate = entered?.rate;
+  if (typeof rate !== "number" || !Number.isFinite(rate) || rate <= 0) {
+    return {
+      ok: false,
+      error: "No exchange rate for that currency yet — try again in a moment.",
+    };
+  }
+
+  try {
+    const originalAmount = toCents(amount, from);
+    return {
+      ok: true,
+      totalCents: convertMinor(originalAmount, from, groupCurrency, rate),
+      original: { originalAmount, originalCurrency: from, exchangeRate: rate },
+    };
+  } catch {
+    return { ok: false, error: "That amount doesn't look like a number." };
+  }
+}
+
 /** Build an equal-split expense. */
 function equalExpense(input: {
   groupId: string;
@@ -320,6 +368,9 @@ function equalExpense(input: {
   participantIds: string[];
   totalCents: Cents;
   currency: string;
+  originalAmount?: Cents;
+  originalCurrency?: string;
+  exchangeRate?: number;
 }): Expense {
   const parts = apportion(
     input.totalCents,
@@ -335,6 +386,9 @@ function equalExpense(input: {
     categorySource: input.categorySource,
     totalAmount: input.totalCents,
     currency: input.currency,
+    originalAmount: input.originalAmount,
+    originalCurrency: input.originalCurrency,
+    exchangeRate: input.exchangeRate,
     expenseDate: today(),
     sourceType: "manual",
     receiptImageUrl: null,
@@ -362,6 +416,10 @@ export function addManualExpense(
     amount: string;
     payerId: string;
     participantIds: string[];
+    /** Set only when the bill was in a currency other than the group's. */
+    currency?: string;
+    /** Units of the group's currency per one unit of `currency`. */
+    exchangeRate?: number;
   },
 ): { db: Db; error?: string } {
   const group = getGroup(db, input.groupId);
@@ -370,12 +428,12 @@ export function addManualExpense(
   const description = input.description.trim();
   if (!description) return { db, error: "Give the expense a description." };
 
-  let totalCents: Cents;
-  try {
-    totalCents = toCents(input.amount, group.defaultCurrency);
-  } catch {
-    return { db, error: "That amount doesn't look like a number." };
-  }
+  const read = readAmount(input.amount, group.defaultCurrency, {
+    currency: input.currency,
+    rate: input.exchangeRate,
+  });
+  if (!read.ok) return { db, error: read.error };
+  const totalCents = read.totalCents;
   if (totalCents <= 0) {
     return { db, error: "An expense has to be for a positive amount." };
   }
@@ -395,6 +453,7 @@ export function addManualExpense(
   const expense = equalExpense({
     groupId: input.groupId,
     currency: group.defaultCurrency,
+    ...read.original,
     description,
     category: input.category,
     categorySource: input.category ? "manual" : null,
@@ -543,6 +602,8 @@ export function updateExpense(
     amount: string;
     payerIds: string[];
     participantIds: string[];
+    currency?: string;
+    exchangeRate?: number;
   },
 ): { db: Db; error?: string } {
   const expense = getExpense(db, expenseId);
@@ -554,12 +615,14 @@ export function updateExpense(
   const description = changes.description.trim();
   if (!description) return { db, error: "Give the expense a description." };
 
-  let totalCents: Cents;
-  try {
-    totalCents = toCents(changes.amount, expense.currency);
-  } catch {
-    return { db, error: "That amount doesn't look like a number." };
-  }
+  // Falls back to whatever this expense was already denominated in, so an
+  // edit that only fixes a typo never silently re-rates it at today's price.
+  const read = readAmount(changes.amount, expense.currency, {
+    currency: changes.currency ?? expense.originalCurrency,
+    rate: changes.exchangeRate ?? expense.exchangeRate,
+  });
+  if (!read.ok) return { db, error: read.error };
+  const totalCents = read.totalCents;
   if (totalCents <= 0) {
     return { db, error: "An expense has to be for a positive amount." };
   }
@@ -617,6 +680,9 @@ export function updateExpense(
     category: changes.category,
     categorySource: changes.category ? "manual" : null,
     totalAmount: totalCents,
+    originalAmount: read.original?.originalAmount,
+    originalCurrency: read.original?.originalCurrency,
+    exchangeRate: read.original?.exchangeRate,
     lineItems: resetSplit ? [] : expense.lineItems,
     splits,
     payers,

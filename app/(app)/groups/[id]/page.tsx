@@ -220,6 +220,9 @@ export default function GroupPage() {
                     <div className="truncate font-semibold">{e.description}</div>
                     <div className="truncate font-mono text-[10.5px] uppercase tracking-[0.06em] text-ink/40">
                       {e.payers.map((p) => nameOf(p.memberId)).join(" & ")} paid
+                      {e.originalCurrency &&
+                        e.originalAmount !== undefined &&
+                        ` · ${formatCents(e.originalAmount, e.originalCurrency)}`}
                       {e.lineItems.length > 0 && ` · ${e.lineItems.length} items`}
                     </div>
                   </div>

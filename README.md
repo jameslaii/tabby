@@ -219,8 +219,10 @@ else's balance. Both edits and deletions land in the activity log.
 ## Currency
 
 A group is created in one currency and every expense in it is denominated that
-way. There is no conversion — see *Not done yet* — but there is one thing worth
-knowing, because it is the sort of bug that is invisible until it is expensive.
+way. A bill can be entered in some *other* currency — a euro sandwich at the airport
+on a trip priced in dong — and is converted at today's rate. Two things about
+that are worth stating plainly, because both are the sort of bug that stays
+invisible until it is expensive.
 
 **Not every currency has cents.** The yen, the won and the dong have no minor
 unit at all, so ¥1000 is a thousand yen, not ten. Everything in `lib/money.ts`
@@ -228,6 +230,25 @@ scales by the currency's own exponent rather than a hardcoded 100, and that
 exponent comes from `Intl` (that is, from CLDR) rather than a table typed out
 by hand that would be one more thing to keep correct. A yen bill split three
 ways is 333/333/334 yen, and it still sums back exactly.
+
+**The rate is frozen onto the expense and never recalculated.** If balances
+were recomputed against today's rate, a group that squared up last week would
+quietly come apart because the euro moved overnight. `Expense.exchangeRate` and
+`originalAmount` are written once, at entry, and an edit that only fixes a typo
+reuses them rather than re-rating the bill.
+
+**Only one conversion ever happens, and it happens at the door.** `readAmount`
+in `lib/db.ts` converts into the group's currency before anything else sees the
+figure, so splits, payers, balances and settling up only ever handle a single
+denomination. All of the currency risk is spent in one function.
+
+Rates come from `app/api/rates`, proxied server-side so the app doesn't depend
+on a third party's CORS headers and one cached answer serves everybody. The
+source is `open.er-api.com` — free, no key, ~166 currencies. The obvious
+alternative, Frankfurter, is European Central Bank data and carries no dong, no
+new Taiwan dollar and no dirham, which rules it out for exactly the trips this
+is for. If rates can't be reached the form says so and stays in the group's
+currency; it never invents a number.
 
 The one place a currency changes behaviour rather than formatting is the home
 screen, which used to add every group's net into a single figure. Euros and
@@ -292,13 +313,10 @@ colour; identity comes from the label and emoji instead.
   "not on this device" screen, and there's no way to hand a group to someone
   else. Supabase plus auth is the fix, and `supabase/schema.sql` is already
   written for it.
-- **Converting between currencies.** A group is kept in one currency, chosen
-  when it is created (see *Currency*), and that much works end to end. What is
-  missing is a bill in a *different* currency from its group — a euro airport
-  sandwich on a trip priced in dong. That needs a rate source, and a rule that
-  the rate is frozen onto the expense at the moment it is entered: a balance
-  that drifts because the euro moved overnight would un-settle a group that
-  had already squared up.
+- **A scanned receipt in another currency.** Typing a bill in a currency other
+  than its group's works (see *Currency*), but a *photographed* one is still
+  assumed to be in the group's currency. The conversion machinery is all there;
+  it is the per-receipt picker in the outing flow that isn't.
 - **Multi-payer manual entry.** The receipt flow reads several payers per bill
   and splits what they each put in; the manual add-expense form still offers
   only one payer.
