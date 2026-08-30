@@ -107,6 +107,33 @@ Bars are single-hue on purpose. Spending categories are nominal — there's no
 natural order to them — so shading bars by size would double-encode length as
 colour; identity comes from the label and emoji instead.
 
+## Deploying
+
+Next.js on Vercel is zero-config — import the repo, set `ANTHROPIC_API_KEY`
+(see `.env.example`), deploy. Or from a machine that's logged in:
+
+```bash
+npm i -g vercel
+vercel login
+vercel --prod
+```
+
+**Read this before you do.** `lib/store.ts` keeps state in module scope. That's
+fine for one long-lived `next dev` process and wrong for Vercel, where every
+route here is server-rendered on demand: each serverless instance gets its own
+copy of the seed, instances are recycled when idle, and concurrent requests can
+land on different ones. Add an expense and it may be gone on refresh; two people
+will see different data. Nothing is corrupted — there's just no shared store
+behind it yet.
+
+So a deploy today is worth doing for one specific reason: it's the only way to
+exercise the real Claude calls in `parseReceipt.ts` and `classify.ts`, which
+can't run locally without a key. Treat it as a staging box for those, not as
+something to hand to friends.
+
+The fix is swapping `lib/store.ts` for a Supabase client. `supabase/schema.sql`
+is ready to apply, RLS included.
+
 ## Not done yet
 
 - **Auth.** There is no login; the app acts as a fixed demo member. Supabase
