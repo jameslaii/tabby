@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { classifyBatch, isConfigured, type ClassifyInput } from "../../../lib/classify";
 import { buildInsights } from "../../../lib/insights";
-import { readJson } from "../../../lib/http";
+import { readJson, withinRateLimit } from "../../../lib/http";
 import {
   currentMemberId,
   getExpenses,
@@ -18,6 +18,13 @@ import {
  * so opening the panel again costs nothing.
  */
 export async function POST(request: Request) {
+  if (!withinRateLimit(request, "categorize", 20)) {
+    return NextResponse.json(
+      { error: "Too many requests — give it a minute." },
+      { status: 429 },
+    );
+  }
+
   const body = await readJson(request);
   if (body === null) {
     return NextResponse.json({ error: "Expected a JSON body." }, { status: 400 });
@@ -28,7 +35,9 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Group not found." }, { status: 404 });
   }
 
-  const pending = getUncategorized(group.id);
+  // Cap one batch at a size a single model call handles comfortably; anything
+  // beyond it stays pending and the next open of the panel picks it up.
+  const pending = getUncategorized(group.id).slice(0, 100);
   const items: ClassifyInput[] = pending.map((expense) => ({
     id: expense.id,
     description: expense.description,

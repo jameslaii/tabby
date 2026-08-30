@@ -6,11 +6,25 @@ import {
   type ReceiptMediaType,
 } from "../../../lib/parseReceipt";
 import { getGroup } from "../../../lib/store";
-import { MAX_IMAGE_BASE64_CHARS, readJson } from "../../../lib/http";
+import {
+  MAX_IMAGE_BASE64_CHARS,
+  MAX_INSTRUCTIONS_CHARS,
+  readJson,
+  withinRateLimit,
+} from "../../../lib/http";
 
 const ALLOWED: ReceiptMediaType[] = ["image/jpeg", "image/png", "image/webp"];
 
 export async function POST(request: Request) {
+  // A vision call per request is the most expensive thing this app does;
+  // ten a minute is far beyond any real receipt-splitting session.
+  if (!withinRateLimit(request, "parse-receipt", 10)) {
+    return NextResponse.json(
+      { error: "Too many receipts at once — give it a minute." },
+      { status: 429 },
+    );
+  }
+
   const body = await readJson(request);
   if (body === null) {
     return NextResponse.json({ error: "Expected a JSON body." }, { status: 400 });
@@ -53,7 +67,7 @@ export async function POST(request: Request) {
     const parsed = await parseReceiptAndSplit({
       receiptImageBase64: imageBase64,
       receiptMediaType: mediaType as ReceiptMediaType,
-      hostInstructions: String(instructions ?? ""),
+      hostInstructions: String(instructions ?? "").slice(0, MAX_INSTRUCTIONS_CHARS),
       members: group.members,
     });
     return NextResponse.json({ parsed, demo: false });

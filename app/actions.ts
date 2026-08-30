@@ -17,10 +17,19 @@ import {
 
 export type ActionResult = { error?: string };
 
+// Server actions are public endpoints: anything a form *could* send arrives
+// here regardless of what the UI allows, so free-text fields get a ceiling.
+// The caps are far above honest use — they exist so a scripted caller can't
+// grow the in-memory store by megabytes per request.
+const MAX_NAME_CHARS = 60;
+const MAX_DESCRIPTION_CHARS = 200;
+const MAX_COMMENT_CHARS = 2000;
+const MAX_LINE_ITEMS = 200;
+
 export async function createGroupAction(formData: FormData) {
   const group = createGroup(
-    String(formData.get("name") ?? ""),
-    String(formData.get("emoji") ?? "🐈"),
+    String(formData.get("name") ?? "").slice(0, MAX_NAME_CHARS),
+    String(formData.get("emoji") ?? "🐈").slice(0, 8),
   );
   revalidatePath("/");
   redirect(`/groups/${group.id}`);
@@ -31,14 +40,17 @@ export async function addExpenseAction(
   formData: FormData,
 ): Promise<ActionResult> {
   const groupId = String(formData.get("groupId"));
-  const participantIds = formData.getAll("participants").map(String);
+  // De-duplicated: a repeated checkbox value would bill that member twice.
+  const participantIds = [...new Set(formData.getAll("participants").map(String))];
 
   if (participantIds.length === 0) {
     return { error: "Pick at least one person to split between." };
   }
 
   const rawCategory = String(formData.get("category") ?? "");
-  const description = String(formData.get("description") ?? "").trim();
+  const description = String(formData.get("description") ?? "")
+    .trim()
+    .slice(0, MAX_DESCRIPTION_CHARS);
   if (!description) return { error: "Give the expense a description." };
 
   // Each input is checked on its own so the message names the field that's
@@ -84,13 +96,26 @@ export async function settleUpAction(
   formData: FormData,
 ): Promise<ActionResult> {
   const groupId = String(formData.get("groupId"));
+  const group = getGroup(groupId);
+  if (!group) return { error: "Group not found." };
+
+  // A settlement naming a member outside this group would credit money to
+  // nobody: balances drop unknown ids, the group stops summing to zero, and
+  // debt simplification refuses to run — bricking the group page.
+  const fromMember = String(formData.get("fromMember"));
+  const toMember = String(formData.get("toMember"));
+  const isMember = (id: string) => group.members.some((m) => m.id === id);
+  if (!isMember(fromMember) || !isMember(toMember)) {
+    return { error: "Both people have to be in this group." };
+  }
+
   try {
     addSettlement({
       groupId,
-      fromMember: String(formData.get("fromMember")),
-      toMember: String(formData.get("toMember")),
+      fromMember,
+      toMember,
       amountCents: toCents(String(formData.get("amount") ?? "")),
-      note: String(formData.get("note") ?? "") || null,
+      note: String(formData.get("note") ?? "").slice(0, MAX_DESCRIPTION_CHARS) || null,
     });
   } catch (error) {
     return { error: error instanceof Error ? error.message : "Couldn't record that." };
@@ -118,22 +143,47 @@ export async function saveReceiptAction(input: {
   const group = getGroup(input.groupId);
   if (!group) return { error: "Group not found." };
 
-  const result = computeFinalSplits(input.parsed, group.members);
+  // An unknown payer would record money paid by nobody: the payment side is
+  // dropped from balances while the debts count, the group stops summing to
+  // zero, and debt simplification refuses to run. Reject it at the door.
+  if (!group.members.some((m) => m.id === input.payerId)) {
+    return { error: "Pick who paid." };
+  }
+
+  if (!Array.isArray(input.parsed?.line_items)) {
+    return { error: "That receipt data is malformed — try parsing it again." };
+  }
+  if (input.parsed.line_items.length > MAX_LINE_ITEMS) {
+    return { error: "That's too many line items for one expense — split the bill in two." };
+  }
+
+  // `parsed` is a client payload. The UI only ever round-trips what the parse
+  // route returned, but nothing forces a caller to: a NaN price or a garbage
+  // amount must come back as an error, not throw mid-action as a 500.
+  let result: ReturnType<typeof computeFinalSplits>;
+  let lineItems: LineItem[];
+  try {
+    result = computeFinalSplits(input.parsed, group.members);
+    lineItems = input.parsed.line_items.map((item) => ({
+      id: crypto.randomUUID(),
+      description: String(item.description ?? "").slice(0, MAX_DESCRIPTION_CHARS),
+      quantity: item.quantity,
+      unitPrice: toCents(item.unit_price),
+      lineTotal: toCents(item.line_total),
+    }));
+  } catch {
+    return { error: "Those amounts don't add up to real numbers — try parsing again." };
+  }
+
   if (result.totalCents <= 0) {
     return { error: "This receipt doesn't add up to anything to split." };
   }
 
-  const lineItems: LineItem[] = input.parsed.line_items.map((item) => ({
-    id: crypto.randomUUID(),
-    description: item.description,
-    quantity: item.quantity,
-    unitPrice: toCents(item.unit_price),
-    lineTotal: toCents(item.line_total),
-  }));
-
   addItemizedExpense({
     groupId: input.groupId,
-    description: input.description.trim() || "Receipt",
+    description:
+      String(input.description ?? "").trim().slice(0, MAX_DESCRIPTION_CHARS) ||
+      "Receipt",
     payerId: input.payerId,
     totalCents: result.totalCents,
     lineItems,
@@ -144,7 +194,7 @@ export async function saveReceiptAction(input: {
       shareValue: null,
       amountOwed: s.amountOwed,
     })),
-    rawComment: input.rawComment || null,
+    rawComment: String(input.rawComment ?? "").slice(0, MAX_COMMENT_CHARS) || null,
   });
 
   revalidatePath(`/groups/${input.groupId}`);
@@ -157,7 +207,7 @@ export async function addMemberAction(
 ): Promise<ActionResult> {
   const groupId = String(formData.get("groupId"));
   try {
-    addMember(groupId, String(formData.get("displayName") ?? ""));
+    addMember(groupId, String(formData.get("displayName") ?? "").slice(0, MAX_NAME_CHARS));
   } catch (error) {
     return { error: error instanceof Error ? error.message : "Couldn't add them." };
   }
