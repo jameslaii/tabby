@@ -28,7 +28,8 @@ CI runs typecheck, tests and build on every pull request.
 
 | Path | |
 |---|---|
-| `lib/money.ts` | Integer-cent primitives and largest-remainder apportionment |
+| `lib/money.ts` | Integer minor-unit primitives and largest-remainder apportionment |
+| `lib/currencies.ts` | The currency list, and how many decimal places each one has |
 | `lib/splits.ts` | Claude's item→person mapping → exact per-person amounts, and who paid |
 | `lib/assign.ts` | Text-only re-split of "who had what, who paid" across every receipt |
 | `lib/balances.ts` | Net positions and greedy debt simplification |
@@ -38,6 +39,7 @@ CI runs typecheck, tests and build on every pull request.
 | `lib/parseReceipt.ts` | The Claude vision + Structured Outputs call |
 | `lib/db.ts` | The data layer as pure state transitions, shaped 1:1 to `supabase/schema.sql` |
 | `components/StoreProvider.tsx` | Holds that state in the browser and persists it to localStorage |
+| `components/ThinkingTrace.tsx` | The itemised account of what reading a receipt is doing |
 | `lib/http.ts` | Request-body parsing and the upload size ceiling |
 | `app/` | Next.js App Router pages, server actions, parse API route |
 | `supabase/schema.sql` | Postgres schema with RLS policies and sum-integrity triggers |
@@ -214,6 +216,43 @@ what actually moved, because rebuilding one costs something:
 Deleting takes two taps and names the amount, since it silently moves everyone
 else's balance. Both edits and deletions land in the activity log.
 
+## Currency
+
+A group is created in one currency and every expense in it is denominated that
+way. There is no conversion — see *Not done yet* — but there is one thing worth
+knowing, because it is the sort of bug that is invisible until it is expensive.
+
+**Not every currency has cents.** The yen, the won and the dong have no minor
+unit at all, so ¥1000 is a thousand yen, not ten. Everything in `lib/money.ts`
+scales by the currency's own exponent rather than a hardcoded 100, and that
+exponent comes from `Intl` (that is, from CLDR) rather than a table typed out
+by hand that would be one more thing to keep correct. A yen bill split three
+ways is 333/333/334 yen, and it still sums back exactly.
+
+The one place a currency changes behaviour rather than formatting is the home
+screen, which used to add every group's net into a single figure. Euros and
+dollars do not add. Totals are now kept per currency: a phone holding groups in
+one currency still shows a single headline number, and a phone holding several
+shows one line each rather than a confident, meaningless sum.
+
+## Waiting for a receipt
+
+Reading a photo takes a few seconds, and a few seconds of nothing reads as a
+broken app — people assume it has hung and leave. A spinner is barely better,
+because it says only "wait" and never "wait for what".
+
+So the wait is itemised. `ThinkingTrace` lists the real phases of the real
+pipeline — shrinking the photo, reading it, working out the split — and each
+one flips to done when that phase actually finishes. Nothing is on a timer, and
+no step appears that did not happen. Where a step learns something concrete on
+the way past it says so: *44 KB*, *5 items*, *3 people*. A number is the
+difference between a progress bar and evidence.
+
+It opens the opposite way round to the traces this borrows from, which collapse
+by default and expand on demand. That is right for something you read after the
+fact; here it is open while it works and folded away once it is finished, since
+the entire reason it exists is to be seen mid-flight.
+
 ## Insights
 
 Every expense is classified into one of ten fixed categories — Dining,
@@ -253,9 +292,13 @@ colour; identity comes from the label and emoji instead.
   "not on this device" screen, and there's no way to hand a group to someone
   else. Supabase plus auth is the fix, and `supabase/schema.sql` is already
   written for it.
-- **Multi-currency.** Amounts are USD-labelled throughout; no conversion,
-  despite `Group.defaultCurrency` existing. The exchange-rate source is still
-  an open decision.
+- **Converting between currencies.** A group is kept in one currency, chosen
+  when it is created (see *Currency*), and that much works end to end. What is
+  missing is a bill in a *different* currency from its group — a euro airport
+  sandwich on a trip priced in dong. That needs a rate source, and a rule that
+  the rate is frozen onto the expense at the moment it is entered: a balance
+  that drifts because the euro moved overnight would un-settle a group that
+  had already squared up.
 - **Multi-payer manual entry.** The receipt flow reads several payers per bill
   and splits what they each put in; the manual add-expense form still offers
   only one payer.

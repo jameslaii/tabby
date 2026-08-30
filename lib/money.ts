@@ -5,12 +5,19 @@
  * `numeric(12,2)` columns as *strings* — so `"10.00" + "5.00"` is the string
  * `"10.005.00"` if you're careless. Parsing to cents at the boundary and
  * staying in integers all the way through removes both hazards.
+ *
+ * "Cents" is shorthand for *minor units*: hundredths of a dollar, but whole
+ * yen, won and dong, which have no subdivision at all. Everything below scales
+ * by the currency's own exponent rather than a hardcoded 100.
  */
+
+import { minorPerUnit, minorUnits } from "./currencies";
 
 export type Cents = number;
 
 /**
- * Parse a dollar value from the model, a form, or a numeric() column.
+ * Parse a money value from the model, a form, or a numeric() column, into
+ * whole minor units of `currency`.
  *
  * Strings are parsed digit-by-digit rather than through `Number`, because the
  * float round-trip is lossy exactly where money cares: `1.005 * 100` is
@@ -22,13 +29,16 @@ export type Cents = number;
  * is 100, because the double nearest to 1.005 is below it. Prefer strings
  * wherever the value came from a database or a form field.
  */
-export function toCents(value: number | string): Cents {
+export function toCents(value: number | string, currency = "USD"): Cents {
+  const scale = minorPerUnit(currency);
+  const places = minorUnits(currency);
+
   if (typeof value === "number") {
     if (!Number.isFinite(value)) {
       throw new Error(`Cannot convert non-finite value to cents: ${value}`);
     }
     // Round half away from zero: Math.round alone is asymmetric on negatives.
-    return Math.sign(value) * Math.round(Math.abs(value) * 100);
+    return Math.sign(value) * Math.round(Math.abs(value) * scale);
   }
 
   const trimmed = value.trim();
@@ -37,18 +47,20 @@ export function toCents(value: number | string): Cents {
     throw new Error(`Cannot parse money string: ${JSON.stringify(value)}`);
   }
   const [, sign, whole, fraction = ""] = match;
-  const cents = Number(whole) * 100 + Number((fraction + "00").slice(0, 2));
+  const minor =
+    Number(whole) * scale +
+    (places > 0 ? Number((fraction + "0".repeat(places)).slice(0, places)) : 0);
 
-  // Round on the third decimal, away from zero.
-  const thirdDigit = fraction.length > 2 ? Number(fraction[2]) : 0;
-  const rounded = cents + (thirdDigit >= 5 ? 1 : 0);
+  // Round on the first dropped digit, away from zero.
+  const dropped = fraction.length > places ? Number(fraction[places]) : 0;
+  const rounded = minor + (dropped >= 5 ? 1 : 0);
 
   return sign === "-" ? -rounded : rounded;
 }
 
 export function formatCents(cents: Cents, currency = "USD"): string {
   return new Intl.NumberFormat("en-US", { style: "currency", currency }).format(
-    cents / 100,
+    cents / minorPerUnit(currency),
   );
 }
 

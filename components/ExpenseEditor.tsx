@@ -255,7 +255,7 @@ export function ExpenseEditor({
                   )}
                 </span>
                 <span className="money shrink-0 text-[14px] font-medium">
-                  {formatCents(item.lineTotal)}
+                  {formatCents(item.lineTotal, expense.currency)}
                 </span>
               </li>
             ))}
@@ -289,7 +289,7 @@ export function ExpenseEditor({
             .map(
               (p) =>
                 `${nameOf(p.memberId)}${
-                  expense.payers.length > 1 ? ` (${formatCents(p.amountPaid)})` : ""
+                  expense.payers.length > 1 ? ` (${formatCents(p.amountPaid, expense.currency)})` : ""
                 }`,
             )
             .join(" and ")}

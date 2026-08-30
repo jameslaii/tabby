@@ -286,6 +286,15 @@ body::before {
     @apply inline-flex min-h-[34px] items-center gap-1.5 rounded-[9px] px-3 text-[13px] font-medium;
   }
 
+  /* The one thing on screen that moves: a slow pulse while a receipt is
+     being read, so a still screen never reads as a hung one. Killed by the
+     reduced-motion block at the bottom of this file. */
+  .pulse-dot {
+    @apply inline-block h-[7px] w-[7px] shrink-0 rounded-full;
+    background: var(--ginger);
+    animation: pulse 1.15s ease-in-out infinite;
+  }
+
   /* --- Disclosures -----------------------------------------------------
      Members and activity are housekeeping. They were cards of the same weight
      as the balances, which made the group screen six identical panels with no
@@ -323,6 +332,11 @@ body::before {
 .safe-x {
   padding-left: max(1.25rem, env(safe-area-inset-left));
   padding-right: max(1.25rem, env(safe-area-inset-right));
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.35; transform: scale(0.72); }
 }
 
 @keyframes fadeUp {

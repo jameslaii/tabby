@@ -24,17 +24,32 @@ export default function HomePage() {
 
   if (!ready) return <Loading label="Opening your groups…" />;
 
-  // The one figure the screen leads with: the viewer's overall position.
+  // The figure the screen leads with: the viewer's overall position.
+  //
   // "Me" is resolved per group — the same person holds a different member row
-  // in each one, so a single id can't stand in for all of them.
-  const netOverall = groups.reduce((sum, group) => {
+  // in each one, so a single id can't stand in for all of them. And the totals
+  // are kept *per currency*, because adding euros to dollars produces a number
+  // that is not money. A trip in one currency still shows a single headline
+  // figure; a phone holding groups in several shows one line each rather than
+  // a confident, meaningless sum.
+  const netByCurrency = new Map<string, number>();
+  for (const group of groups) {
     const balances = computeBalances(
       group.members,
       getExpenses(db, group.id),
       getSettlements(db, group.id),
     );
-    return sum + balanceFor(balances, currentMemberId(db, group.id));
-  }, 0);
+    const net = balanceFor(balances, currentMemberId(db, group.id));
+    netByCurrency.set(
+      group.defaultCurrency,
+      (netByCurrency.get(group.defaultCurrency) ?? 0) + net,
+    );
+  }
+
+  const outstanding = [...netByCurrency.entries()].filter(([, net]) => net !== 0);
+  const settled = outstanding.length === 0;
+  const single = outstanding.length === 1 ? outstanding[0] : null;
+  const owedOverall = outstanding.every(([, net]) => net > 0);
 
   return (
     <main className="pt-5">
@@ -44,25 +59,45 @@ export default function HomePage() {
           {groups.length} group{groups.length === 1 ? "" : "s"}
         </span>
         <h1 className="display mt-3.5 text-balance">
-          {netOverall === 0
+          {settled
             ? "You're all square."
-            : netOverall > 0
-              ? "You're owed money."
-              : "You owe money."}
+            : single
+              ? single[1] > 0
+                ? "You're owed money."
+                : "You owe money."
+              : owedOverall
+                ? "You're owed money."
+                : "There's money outstanding."}
         </h1>
-        {netOverall !== 0 && (
+        {single && (
           <div
             className={`money mt-3 text-[44px] font-medium leading-none ${
-              netOverall > 0 ? "text-teal" : "text-ginger-dark"
+              single[1] > 0 ? "text-teal" : "text-ginger-dark"
             }`}
           >
-            {formatAbs(netOverall)}
+            {formatAbs(single[1], single[0])}
           </div>
         )}
+        {!single && outstanding.length > 0 && (
+          <ul className="mt-3 flex flex-wrap justify-center gap-x-5 gap-y-1">
+            {outstanding.map(([code, net]) => (
+              <li
+                key={code}
+                className={`money text-[26px] font-medium leading-tight ${
+                  net > 0 ? "text-teal" : "text-ginger-dark"
+                }`}
+              >
+                {formatAbs(net, code)}
+              </li>
+            ))}
+          </ul>
+        )}
         <p className="lede mx-auto mt-3 max-w-[17rem] text-balance">
-          {netOverall === 0
+          {settled
             ? "Nothing outstanding across your groups. Enjoy it while it lasts."
-            : "Across every group you're part of."}
+            : single
+              ? "Across every group you're part of."
+              : "Kept apart by currency — these don't add together."}
         </p>
       </section>
 

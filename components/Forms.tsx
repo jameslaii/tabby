@@ -49,10 +49,12 @@ export function SettleUpForm({
   groupId,
   members,
   suggestions,
+  currency,
 }: {
   groupId: string;
   members: GroupMember[];
   suggestions: Transfer[];
+  currency: string;
 }) {
   const { update } = useStore();
   const first = suggestions[0];
@@ -152,7 +154,7 @@ export function SettleUpForm({
       {first && (
         <p className="text-xs text-ink/45">
           Suggested: {nameOf(first.fromMemberId)} → {nameOf(first.toMemberId)}{" "}
-          {formatCents(first.amount)}.
+          {formatCents(first.amount, currency)}.
         </p>
       )}
 

@@ -3,6 +3,7 @@
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createGroup } from "../../../../lib/db";
+import { CURRENCIES, DEFAULT_CURRENCY } from "../../../../lib/currencies";
 import { useStore } from "../../../../components/StoreProvider";
 
 /**
@@ -22,6 +23,7 @@ export default function NewGroupPage() {
 
   const [name, setName] = useState("");
   const [emoji, setEmoji] = useState(EMOJI[0]);
+  const [currency, setCurrency] = useState(DEFAULT_CURRENCY);
   const [people, setPeople] = useState<string[]>([]);
   const [draft, setDraft] = useState("");
   const [note, setNote] = useState<string | null>(null);
@@ -60,7 +62,7 @@ export default function NewGroupPage() {
     const names = draft.trim() ? [...people, draft.trim()] : people;
 
     const { group } = update((db) =>
-      createGroup(db, { name, emoji, memberNames: names }),
+      createGroup(db, { name, emoji, memberNames: names, currency }),
     );
     router.push(`/groups/${group.id}`);
   }
@@ -96,6 +98,28 @@ export default function NewGroupPage() {
               autoFocus
             />
           </div>
+          <div className="mt-4">
+            <label className="label" htmlFor="group-currency">
+              Currency
+            </label>
+            <select
+              id="group-currency"
+              className="field"
+              value={currency}
+              onChange={(e) => setCurrency(e.target.value)}
+            >
+              {CURRENCIES.map((c) => (
+                <option key={c.code} value={c.code}>
+                  {c.code} &mdash; {c.name}
+                </option>
+              ))}
+            </select>
+            <p className="mt-1.5 text-xs text-ink/45">
+              Every expense in this group is in this currency. It can&rsquo;t be
+              changed once there are expenses.
+            </p>
+          </div>
+
           <div className="mt-2.5 flex flex-wrap gap-1.5">
             {EMOJI.map((option) => (
               <button

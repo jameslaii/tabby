@@ -6,6 +6,7 @@ import { addItemizedExpenses, type ItemizedExpenseInput } from "../lib/db";
 import { useStore } from "./StoreProvider";
 import { computeFinalSplits, payersFor, resolvePayers } from "../lib/splits";
 import { formatCents, toCents } from "../lib/money";
+import { ThinkingTrace, type TraceState, type TraceStep } from "./ThinkingTrace";
 import {
   MAX_RECEIPTS_PER_SPLIT,
   WHOLE_BILL,
@@ -36,6 +37,10 @@ interface Draft {
   status: "parsing" | "ready" | "error";
   error?: string;
   parsed?: ParsedReceipt;
+  /** The visible account of what reading this receipt actually did. */
+  trace?: TraceStep[];
+  startedAt?: number;
+  finishedAt?: number;
   payers: ExpensePayer[];
   /** Notes from reading who paid — cleared once the host picks by hand. */
   payerNotes: string[];
@@ -58,9 +63,11 @@ const JPEG_QUALITY = 0.82;
 export function ReceiptFlow({
   groupId,
   members,
+  currency,
 }: {
   groupId: string;
   members: GroupMember[];
+  currency: string;
 }) {
   const router = useRouter();
   const { update } = useStore();
@@ -80,7 +87,7 @@ export function ReceiptFlow({
     for (const draft of drafts) {
       if (draft.status !== "ready" || !draft.parsed) continue;
       try {
-        out.set(draft.id, computeFinalSplits(draft.parsed, members));
+        out.set(draft.id, computeFinalSplits(draft.parsed, members, currency));
       } catch {
         // A malformed amount is reported on the draft itself, not here.
       }
@@ -110,6 +117,7 @@ export function ReceiptFlow({
 
   async function ingest(file: File) {
     const id = newId();
+    const startedAt = Date.now();
     setDrafts((current) => [
       ...current,
       {
@@ -117,6 +125,12 @@ export function ReceiptFlow({
         label: "",
         previewUrl: "",
         status: "parsing",
+        startedAt,
+        trace: [
+          { key: "shrink", label: "Shrinking the photo", state: "active" },
+          { key: "read", label: "Reading the receipt", state: "pending" },
+          { key: "split", label: "Working out the split", state: "pending" },
+        ],
         payers: [],
         payerNotes: [],
         demo: false,
@@ -128,8 +142,25 @@ export function ReceiptFlow({
         current.map((d) => (d.id === id ? { ...d, ...change } : d)),
       );
 
+    // Steps flip when the work behind them finishes, never on a timer.
+    const mark = (key: string, state: TraceState, detail?: string) =>
+      setDrafts((current) =>
+        current.map((d) =>
+          d.id === id
+            ? {
+                ...d,
+                trace: (d.trace ?? []).map((t) =>
+                  t.key === key ? { ...t, state, detail: detail ?? t.detail } : t,
+                ),
+              }
+            : d,
+        ),
+      );
+
     try {
       const image = await prepareImage(file);
+      mark("shrink", "done", `${Math.round((image.base64.length * 3) / 4096)} KB`);
+      mark("read", "active");
       patch({ previewUrl: image.previewUrl });
 
       const data = await postJson<{ parsed: ParsedReceipt; demo: boolean }>(
@@ -144,13 +175,25 @@ export function ReceiptFlow({
         },
       );
 
+      const items = data.parsed.line_items?.length ?? 0;
+      mark("read", "done", items === 1 ? "1 item" : `${items} items`);
+      mark("split", "active");
+
       setDrafts((current) =>
         current.map((d) =>
-          d.id === id ? hydrate(d, data.parsed, members, data.demo) : d,
+          d.id === id
+            ? hydrate(d, data.parsed, members, data.demo, currency)
+            : d,
         ),
       );
     } catch (e) {
-      patch({ status: "error", error: messageFor(e), payers: [] });
+      patch({
+        status: "error",
+        error: messageFor(e),
+        payers: [],
+        finishedAt: Date.now(),
+        trace: undefined,
+      });
     }
   }
 
@@ -221,6 +264,7 @@ export function ReceiptFlow({
             { ...draft.parsed, ...patch },
             members,
             draft.demo,
+            currency,
           );
         }),
       );
@@ -349,7 +393,7 @@ export function ReceiptFlow({
   function addTyped(description: string, amount: string): string | null {
     let cents: number;
     try {
-      cents = toCents(amount);
+      cents = toCents(amount, currency);
     } catch {
       return "That amount doesn't look like a number.";
     }
@@ -390,6 +434,7 @@ export function ReceiptFlow({
         parsed,
         members,
         false,
+        currency,
       ),
     ]);
     setStage("review");
@@ -447,8 +492,8 @@ export function ReceiptFlow({
           id: newId(),
           description: String(item.description ?? "").slice(0, 200),
           quantity: item.quantity,
-          unitPrice: toCents(item.unit_price),
-          lineTotal: toCents(item.line_total),
+          unitPrice: toCents(item.unit_price, currency),
+          lineTotal: toCents(item.line_total, currency),
         }));
       } catch {
         setError(`The amounts on "${labelFor(draft, drafts)}" aren't readable.`);
@@ -596,7 +641,7 @@ export function ReceiptFlow({
             {parsing && <span className="text-ink/40"> · reading…</span>}
           </h2>
           <span className="money text-lg font-medium text-teal">
-            {formatCents(totals.grand)}
+            {formatCents(totals.grand, currency)}
           </span>
         </div>
         {ready.length > 0 && (
@@ -605,7 +650,7 @@ export function ReceiptFlow({
               <li key={m.id} className="flex items-center justify-between">
                 <span className="text-[15px]">{m.displayName}</span>
                 <span className="money text-[15px] font-medium">
-                  {formatCents(totals.perMember.get(m.id) ?? 0)}
+                  {formatCents(totals.perMember.get(m.id) ?? 0, currency)}
                 </span>
               </li>
             ))}
@@ -680,12 +725,9 @@ export function ReceiptFlow({
                   aria-label="What this receipt is"
                 />
                 <div className="mt-1.5 flex items-center gap-3 text-sm">
-                  {draft.status === "parsing" && (
-                    <span className="text-ink/45">Reading the receipt…</span>
-                  )}
                   {result && (
                     <span className="money text-[14px] font-medium">
-                      {formatCents(result.totalCents)}
+                      {formatCents(result.totalCents, currency)}
                     </span>
                   )}
                   <button
@@ -698,6 +740,15 @@ export function ReceiptFlow({
                 </div>
               </div>
             </div>
+
+            {draft.trace && draft.startedAt !== undefined && (
+              <ThinkingTrace
+                steps={draft.trace}
+                startedAt={draft.startedAt}
+                finishedAt={draft.finishedAt}
+                failed={draft.status === "error"}
+              />
+            )}
 
             {draft.status === "error" && (
               <ErrorNote>{draft.error ?? "Couldn't read that receipt."}</ErrorNote>
@@ -742,7 +793,7 @@ export function ReceiptFlow({
                           {m.displayName}
                           {paid && draft.payers.length > 1 && (
                             <span className="ml-1.5 opacity-70">
-                              {formatCents(paid.amountPaid)}
+                              {formatCents(paid.amountPaid, currency)}
                             </span>
                           )}
                         </button>
@@ -766,6 +817,7 @@ export function ReceiptFlow({
                   draft={draft}
                   result={result}
                   members={members}
+                  currency={currency}
                   onToggle={(tempId, name) => toggleItem(draft.id, tempId, name)}
                   onShare={(tempId, name, count) =>
                     setShare(draft.id, tempId, name, count)
@@ -829,12 +881,14 @@ function ItemList({
   draft,
   result,
   members,
+  currency,
   onToggle,
   onShare,
 }: {
   draft: Draft;
   result: SplitResult;
   members: GroupMember[];
+  currency: string;
   onToggle: (tempId: string, memberName: string) => void;
   onShare: (tempId: string, memberName: string, count: number) => void;
 }) {
@@ -886,7 +940,7 @@ function ItemList({
                   )}
                 </span>
                 <span className="money shrink-0 text-[14px] font-medium">
-                  {formatCents(safeCents(item.line_total))}
+                  {formatCents(safeCents(item.line_total), currency)}
                 </span>
               </div>
 
@@ -956,7 +1010,7 @@ function ItemList({
                 {parsed.line_items.length === 0 ? "The bill" : "Rest of the bill"}
               </span>
               <span className="money shrink-0 text-[14px] font-medium">
-                {formatCents(remainder)}
+                {formatCents(remainder, currency)}
               </span>
             </div>
             <MemberChips
@@ -971,7 +1025,7 @@ function ItemList({
 
       {extras !== 0 && (
         <p className="mt-3 border-t border-ink/8 pt-3 text-sm text-ink/55">
-          Tax, tip and fees ({formatCents(extras)}) are spread in proportion to
+          Tax, tip and fees ({formatCents(extras, currency)}) are spread in proportion to
           what each person had.
         </p>
       )}
@@ -1165,19 +1219,22 @@ function hydrate(
   parsed: ParsedReceipt,
   members: GroupMember[],
   demo: boolean,
+  currency: string,
 ): Draft {
   let totalCents = 0;
   try {
-    totalCents = computeFinalSplits(parsed, members).totalCents;
+    totalCents = computeFinalSplits(parsed, members, currency).totalCents;
   } catch {
     return {
       ...draft,
       status: "error",
       error: "The amounts on that receipt didn't read as numbers. Try a clearer photo.",
+      finishedAt: Date.now(),
+      trace: undefined,
     };
   }
 
-  const { payers, warnings } = resolvePayers(parsed, members, totalCents);
+  const { payers, warnings } = resolvePayers(parsed, members, totalCents, currency);
 
   // A re-split that names nobody keeps whoever the host already picked —
   // re-apportioned, since the total may have moved.
@@ -1186,12 +1243,26 @@ function hydrate(
       ? payers
       : payersFor(draft.payers.map((p) => p.memberId), totalCents);
 
+  const people = new Set(
+    computeFinalSplits(parsed, members, currency).splits.map((x) => x.memberId),
+  ).size;
+
   return {
     ...draft,
     parsed,
     demo,
     status: "ready",
     error: undefined,
+    finishedAt: Date.now(),
+    trace: (draft.trace ?? []).map((t) =>
+      t.key === "split"
+        ? {
+            ...t,
+            state: "done" as TraceState,
+            detail: people === 1 ? "1 person" : `${people} people`,
+          }
+        : t,
+    ),
     payers: kept,
     payerNotes: warnings
       .filter((w) => w.code !== "no_payer" || kept.length === 0)

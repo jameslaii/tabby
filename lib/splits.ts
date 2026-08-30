@@ -32,6 +32,7 @@ import {
 export function computeFinalSplits(
   parsed: ParsedReceipt,
   members: GroupMember[],
+  currency = "USD",
 ): SplitResult {
   const warnings: SplitWarning[] = [];
   const warn = (
@@ -101,7 +102,7 @@ export function computeFinalSplits(
   let itemsTotal: Cents = 0;
 
   for (const item of parsed.line_items) {
-    const lineTotal = toCents(item.line_total);
+    const lineTotal = toCents(item.line_total, currency);
     itemsTotal += lineTotal;
 
     const assignment = assignmentFor.get(item.temp_id);
@@ -167,7 +168,7 @@ export function computeFinalSplits(
   // line item, so a whole-bill entry matched nothing and the entire bill fell
   // through to the drift correction. It covers whatever part of the subtotal
   // the line items didn't — which for an unitemized bill is all of it.
-  const subtotalCents = toCents(parsed.subtotal);
+  const subtotalCents = toCents(parsed.subtotal, currency);
   const remainder = subtotalCents - itemsTotal;
 
   if (remainder > 0) {
@@ -217,7 +218,9 @@ export function computeFinalSplits(
   // --- Tax, tip and fees, proportional to each person's subtotal ----------
   const baseTotal = sum([...subtotalByMember.values()]);
   const extras =
-    toCents(parsed.tax) + toCents(parsed.tip) + toCents(parsed.other_charges);
+    toCents(parsed.tax, currency) +
+    toCents(parsed.tip, currency) +
+    toCents(parsed.other_charges, currency);
 
   const ids = members.map((m) => m.id);
   let extraParts: Cents[];
@@ -245,7 +248,7 @@ export function computeFinalSplits(
   // added to anyone. Apportionment already sums exactly, so a gap means the
   // receipt data disagrees with itself and a human needs to look.
   const totalCents = sum(splits.map((s) => s.amountOwed));
-  const grandTotal = toCents(parsed.grand_total);
+  const grandTotal = toCents(parsed.grand_total, currency);
   if (totalCents !== grandTotal) {
     warn(
       "total_mismatch",
@@ -270,6 +273,7 @@ export function resolvePayers(
   parsed: ParsedReceipt,
   members: GroupMember[],
   totalCents: Cents,
+  currency = "USD",
 ): { payers: ExpensePayer[]; warnings: SplitWarning[] } {
   const warnings: SplitWarning[] = [];
   const byName = buildNameIndex(members);
@@ -296,7 +300,7 @@ export function resolvePayers(
 
     let amountCents = 0;
     try {
-      amountCents = Math.max(0, toCents(entry.amount ?? 0));
+      amountCents = Math.max(0, toCents(entry.amount ?? 0, currency));
     } catch {
       amountCents = 0; // An unreadable figure means "amount unknown", not "zero paid".
     }

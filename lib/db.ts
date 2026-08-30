@@ -1,4 +1,5 @@
 import { apportion, toCents, type Cents } from "./money";
+import { DEFAULT_CURRENCY, isCurrency } from "./currencies";
 import type { Category } from "./categories";
 import type {
   ActivityEntry,
@@ -162,7 +163,12 @@ function nameOf(db: Db, groupId: string, memberId: string): string {
  */
 export function createGroup(
   db: Db,
-  input: { name: string; emoji: string; memberNames: string[] },
+  input: {
+    name: string;
+    emoji: string;
+    memberNames: string[];
+    currency?: string;
+  },
 ): { db: Db; group: Group } {
   const you: GroupMember = {
     id: id(),
@@ -185,7 +191,9 @@ export function createGroup(
     id: id(),
     name: input.name.trim() || "New group",
     emoji: input.emoji || "🐈",
-    defaultCurrency: "USD",
+    defaultCurrency: isCurrency(input.currency)
+      ? input.currency
+      : DEFAULT_CURRENCY,
     members: [you, ...others],
   };
 
@@ -311,6 +319,7 @@ function equalExpense(input: {
   payers: ExpensePayer[];
   participantIds: string[];
   totalCents: Cents;
+  currency: string;
 }): Expense {
   const parts = apportion(
     input.totalCents,
@@ -325,7 +334,7 @@ function equalExpense(input: {
     category: input.category,
     categorySource: input.categorySource,
     totalAmount: input.totalCents,
-    currency: "USD",
+    currency: input.currency,
     expenseDate: today(),
     sourceType: "manual",
     receiptImageUrl: null,
@@ -363,7 +372,7 @@ export function addManualExpense(
 
   let totalCents: Cents;
   try {
-    totalCents = toCents(input.amount);
+    totalCents = toCents(input.amount, group.defaultCurrency);
   } catch {
     return { db, error: "That amount doesn't look like a number." };
   }
@@ -385,6 +394,7 @@ export function addManualExpense(
 
   const expense = equalExpense({
     groupId: input.groupId,
+    currency: group.defaultCurrency,
     description,
     category: input.category,
     categorySource: input.category ? "manual" : null,
@@ -476,7 +486,7 @@ export function addItemizedExpenses(
       category: null,
       categorySource: null,
       totalAmount: receipt.totalCents,
-      currency: "USD",
+      currency: group.defaultCurrency,
       expenseDate: today(),
       sourceType: "receipt_ai",
       receiptImageUrl: null,
@@ -546,7 +556,7 @@ export function updateExpense(
 
   let totalCents: Cents;
   try {
-    totalCents = toCents(changes.amount);
+    totalCents = toCents(changes.amount, expense.currency);
   } catch {
     return { db, error: "That amount doesn't look like a number." };
   }
@@ -724,7 +734,7 @@ export function addSettlement(
 
   let amountCents: Cents;
   try {
-    amountCents = toCents(input.amount);
+    amountCents = toCents(input.amount, group.defaultCurrency);
   } catch {
     return { db, error: "That amount doesn't look like a number." };
   }
@@ -738,7 +748,7 @@ export function addSettlement(
     fromMember: input.fromMember,
     toMember: input.toMember,
     amount: amountCents,
-    currency: "USD",
+    currency: group.defaultCurrency,
     note: input.note,
     settledAt: now(),
   };

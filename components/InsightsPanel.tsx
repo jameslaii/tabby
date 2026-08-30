@@ -14,7 +14,13 @@ import { useStore } from "./StoreProvider";
 
 type Measure = "group" | "you";
 
-export function InsightsPanel({ groupId }: { groupId: string }) {
+export function InsightsPanel({
+  groupId,
+  currency,
+}: {
+  groupId: string;
+  currency: string;
+}) {
   const { db, update } = useStore();
   const [measure, setMeasure] = useState<Measure>("group");
   const [busy, setBusy] = useState(false);
@@ -134,7 +140,7 @@ export function InsightsPanel({ groupId }: { groupId: string }) {
             figures; the mono face is narrower and this is a secondary number
             anyway — the hero belongs to the balance at the top of the screen. */}
         <div className="money mt-1.5 text-[36px] font-medium leading-none text-ink">
-          {formatCents(total)}
+          {formatCents(total, currency)}
         </div>
       </div>
 
@@ -147,7 +153,7 @@ export function InsightsPanel({ groupId }: { groupId: string }) {
         />
         <Tile
           label="Biggest"
-          value={insights.largest ? formatCents(insights.largest.cents) : "—"}
+          value={insights.largest ? formatCents(insights.largest.cents, currency) : "—"}
           hint={insights.largest?.description}
         />
       </div>
@@ -162,7 +168,7 @@ export function InsightsPanel({ groupId }: { groupId: string }) {
           return (
             <div
               key={row.category}
-              title={`${row.category}: ${formatCents(cents)} across ${row.count} expense${
+              title={`${row.category}: ${formatCents(cents, currency)} across ${row.count} expense${
                 row.count === 1 ? "" : "s"
               }`}
             >
@@ -172,7 +178,7 @@ export function InsightsPanel({ groupId }: { groupId: string }) {
                   {row.category}
                 </span>
                 <span className="money shrink-0 text-[14px] font-medium">
-                  {formatCents(cents)}
+                  {formatCents(cents, currency)}
                 </span>
               </div>
               <div className="mt-1.5 flex items-center gap-2">
@@ -190,7 +196,7 @@ export function InsightsPanel({ groupId }: { groupId: string }) {
                 {row.count} expense{row.count === 1 ? "" : "s"}
                 {measure === "group" &&
                   row.yourCents > 0 &&
-                  ` · your share ${formatCents(row.yourCents)}`}
+                  ` · your share ${formatCents(row.yourCents, currency)}`}
               </div>
             </div>
           );

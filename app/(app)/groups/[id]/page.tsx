@@ -138,7 +138,7 @@ export default function GroupPage() {
                         : "text-ink/35"
                   }`}
                 >
-                  {b.net === 0 ? "settled" : formatAbs(b.net)}
+                  {b.net === 0 ? "settled" : formatAbs(b.net, group.defaultCurrency)}
                 </span>
               </li>
             ))}
@@ -169,7 +169,7 @@ export default function GroupPage() {
                       </span>
                       <span className="leader-dots" aria-hidden="true" />
                       <span className="money shrink-0 font-medium text-teal">
-                        {formatCents(t.amount)}
+                        {formatCents(t.amount, group.defaultCurrency)}
                       </span>
                     </li>
                   ))}
@@ -186,7 +186,7 @@ export default function GroupPage() {
         <div className="tear tear-bottom" aria-hidden="true" />
       </section>
 
-      {expenses.length > 0 && <InsightsPanel groupId={id} />}
+      {expenses.length > 0 && <InsightsPanel groupId={id} currency={group.defaultCurrency} />}
 
       <section className="card card-data">
         <h2 className="card-title">Expenses</h2>
@@ -241,6 +241,7 @@ export default function GroupPage() {
               groupId={id}
               members={group.members}
               suggestions={transfers}
+              currency={group.defaultCurrency}
             />
           </div>
           {settlements.length > 0 && (

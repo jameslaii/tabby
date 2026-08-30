@@ -28,7 +28,11 @@ export default function ReceiptPage() {
           what and who paid, then review before it saves.
         </p>
       </div>
-      <ReceiptFlow groupId={id} members={group.members} />
+      <ReceiptFlow
+        groupId={id}
+        members={group.members}
+        currency={group.defaultCurrency}
+      />
     </main>
   );
 }
