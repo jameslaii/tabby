@@ -503,8 +503,163 @@ export function addItemizedExpenses(
   return { db: next };
 }
 
+export function getExpense(db: Db, expenseId: string): Expense | undefined {
+  return db.expenses.find((e) => e.id === expenseId);
+}
+
+/**
+ * Correct a saved expense.
+ *
+ * Every editable field arrives at once, and what happens to the split is
+ * decided from what actually moved:
+ *
+ * - Description, category or payer alone — the split is left exactly as it
+ *   was. That matters most for a scanned receipt, where the split is an
+ *   itemized one that a re-derivation could not reproduce.
+ * - A different total, or a different set of people — the split is rebuilt as
+ *   an even one, and any line items are dropped. They summed to the old total
+ *   and would contradict the new one, and a stored breakdown that disagrees
+ *   with the expense above it is worse than no breakdown at all.
+ *
+ * The caller warns about the second case before it happens; see
+ * `splitWillReset`.
+ */
+export function updateExpense(
+  db: Db,
+  expenseId: string,
+  changes: {
+    description: string;
+    category: Category | null;
+    amount: string;
+    payerIds: string[];
+    participantIds: string[];
+  },
+): { db: Db; error?: string } {
+  const expense = getExpense(db, expenseId);
+  if (!expense) return { db, error: "That expense no longer exists." };
+
+  const group = getGroup(db, expense.groupId);
+  if (!group) return { db, error: "Group not found." };
+
+  const description = changes.description.trim();
+  if (!description) return { db, error: "Give the expense a description." };
+
+  let totalCents: Cents;
+  try {
+    totalCents = toCents(changes.amount);
+  } catch {
+    return { db, error: "That amount doesn't look like a number." };
+  }
+  if (totalCents <= 0) {
+    return { db, error: "An expense has to be for a positive amount." };
+  }
+
+  const payerIds = [...new Set(changes.payerIds)];
+  if (payerIds.length === 0) return { db, error: "Pick who paid." };
+  if (!payerIds.every((id) => group.members.some((m) => m.id === id))) {
+    return { db, error: "Whoever paid isn't in this group." };
+  }
+
+  const participantIds = [...new Set(changes.participantIds)];
+  if (participantIds.length === 0) {
+    return { db, error: "Pick at least one person to split between." };
+  }
+  if (!participantIds.every((id) => group.members.some((m) => m.id === id))) {
+    return { db, error: "Someone in that split isn't in this group." };
+  }
+
+  const totalChanged = totalCents !== expense.totalAmount;
+  const peopleChanged = !sameMembers(
+    participantIds,
+    expense.splits.map((s) => s.memberId),
+  );
+  const resetSplit = totalChanged || peopleChanged;
+
+  const splits: ExpenseSplit[] = resetSplit
+    ? apportion(
+        totalCents,
+        participantIds.map(() => 1),
+        participantIds,
+      ).map((amountOwed, i) => ({
+        memberId: participantIds[i],
+        lineItemId: null,
+        splitType: "equal" as const,
+        shareValue: null,
+        amountOwed,
+      }))
+    : expense.splits;
+
+  // Payers keep their existing amounts only while both the people and the
+  // total stand still; otherwise what they put in can't still add up.
+  const payersUnchanged =
+    !totalChanged && sameMembers(payerIds, expense.payers.map((p) => p.memberId));
+  const payers: ExpensePayer[] = payersUnchanged
+    ? expense.payers
+    : apportion(
+        totalCents,
+        payerIds.map(() => 1),
+        payerIds,
+      ).map((amountPaid, i) => ({ memberId: payerIds[i], amountPaid }));
+
+  const updated: Expense = {
+    ...expense,
+    description,
+    category: changes.category,
+    categorySource: changes.category ? "manual" : null,
+    totalAmount: totalCents,
+    lineItems: resetSplit ? [] : expense.lineItems,
+    splits,
+    payers,
+  };
+
+  const next = withActivity(
+    {
+      ...db,
+      expenses: db.expenses.map((e) => (e.id === expenseId ? updated : e)),
+    },
+    {
+      groupId: expense.groupId,
+      action: "expense_updated",
+      summary: `${description} was edited`,
+      entityId: expense.id,
+    },
+  );
+
+  return { db: next };
+}
+
+/** Whether saving these changes would replace an itemized split with an even one. */
+export function splitWillReset(
+  expense: Expense,
+  amountCents: Cents,
+  participantIds: string[],
+): boolean {
+  if (expense.lineItems.length === 0) return false;
+  return (
+    amountCents !== expense.totalAmount ||
+    !sameMembers(participantIds, expense.splits.map((s) => s.memberId))
+  );
+}
+
 export function deleteExpense(db: Db, expenseId: string): Db {
-  return { ...db, expenses: db.expenses.filter((e) => e.id !== expenseId) };
+  const expense = getExpense(db, expenseId);
+  if (!expense) return db;
+
+  return withActivity(
+    { ...db, expenses: db.expenses.filter((e) => e.id !== expenseId) },
+    {
+      groupId: expense.groupId,
+      action: "expense_deleted",
+      summary: `${expense.description} was deleted`,
+      entityId: null,
+    },
+  );
+}
+
+function sameMembers(a: string[], b: string[]): boolean {
+  if (a.length !== b.length) return false;
+  const set = new Set(a);
+  return b.every((id) => set.has(id));
 }
 
 /**

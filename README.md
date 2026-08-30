@@ -163,6 +163,23 @@ to the bill, are warnings rather than silent adjustments — a payment recorded
 against nobody drops out of balances while the debts stay, and a group that
 doesn't sum to zero makes debt simplification refuse to run.
 
+## Correcting an expense
+
+Tap any expense to edit or delete it. What happens to the split is decided by
+what actually moved, because rebuilding one costs something:
+
+- **Description, category or payer** — the split is left exactly as it is. This
+  matters most for a scanned receipt, whose split is itemized and could not be
+  reconstructed from the numbers that survive. Fixing whose card came out
+  shouldn't cost the itemization.
+- **A different total, or a different set of people** — the split is rebuilt as
+  an even one and the stored line items are dropped. They summed to the old
+  total, and a breakdown that contradicts the expense above it is worse than no
+  breakdown. The form says so before you save, and only when it applies.
+
+Deleting takes two taps and names the amount, since it silently moves everyone
+else's balance. Both edits and deletions land in the activity log.
+
 ## Insights
 
 Every expense is classified into one of ten fixed categories — Dining,
@@ -189,10 +206,10 @@ colour; identity comes from the label and emoji instead.
 
 ## Not done yet
 
-- **Editing and deleting an expense.** Once saved, an expense is permanent —
-  there is no correction path for a typo'd total or a wrong payer, and stored
-  line items are never shown again after the review screen. The largest
-  functional gap.
+- **Editing a receipt's itemization.** An expense can be corrected or deleted
+  (see *Correcting an expense*), but reassigning individual line items after
+  saving means reopening the review screen, and the assignments that screen
+  works from aren't stored — only the amounts they produced.
 - **Auth.** There is no login; `lib/store.ts` holds one stubbed user id and
   every group carries a `group_members` row pointing at it. Supabase auth is
   the next step, and `supabase/schema.sql` already carries the RLS policies it

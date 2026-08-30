@@ -80,7 +80,13 @@ export interface Settlement {
 export interface ActivityEntry {
   id: string;
   groupId: string;
-  action: "expense_created" | "settled_up" | "member_added" | "group_created";
+  action:
+    | "expense_created"
+    | "expense_updated"
+    | "expense_deleted"
+    | "settled_up"
+    | "member_added"
+    | "group_created";
   summary: string;
   entityId: string | null;
   createdAt: string;

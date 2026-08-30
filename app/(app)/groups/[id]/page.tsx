@@ -168,22 +168,32 @@ export default function GroupPage() {
         ) : (
           <ul className="mt-3 divide-y divide-ink/8">
             {expenses.map((e) => (
-              <li key={e.id} className="flex items-start gap-3 py-3">
-                <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-paper/40 text-base">
-                  {e.category ? CATEGORY_EMOJI[e.category] : "🧾"}
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="font-semibold">{e.description}</div>
-                  <div className="text-[12px] text-ink/45">
-                    {e.category ?? "Uncategorized"} ·{" "}
-                    {e.payers.map((p) => nameOf(p.memberId)).join(" & ")} paid ·{" "}
-                    {e.expenseDate}
-                    {e.lineItems.length > 0 && ` · ${e.lineItems.length} items`}
+              <li key={e.id}>
+                <Link
+                  href={`/groups/${id}/expenses/${e.id}`}
+                  className="-mx-2 flex items-start gap-3 rounded-xl px-2 py-3 transition hover:bg-white/50"
+                >
+                  <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-paper/40 text-base">
+                    {e.category ? CATEGORY_EMOJI[e.category] : "🧾"}
                   </div>
-                </div>
-                <div className="shrink-0 font-bold tabular-nums">
-                  {formatCents(e.totalAmount, e.currency)}
-                </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="font-semibold">{e.description}</div>
+                    <div className="text-[12px] text-ink/45">
+                      {e.category ?? "Uncategorized"} ·{" "}
+                      {e.payers.map((p) => nameOf(p.memberId)).join(" & ")} paid ·{" "}
+                      {e.expenseDate}
+                      {e.lineItems.length > 0 && ` · ${e.lineItems.length} items`}
+                    </div>
+                  </div>
+                  <div className="shrink-0 text-right">
+                    <div className="font-bold tabular-nums">
+                      {formatCents(e.totalAmount, e.currency)}
+                    </div>
+                    <div className="text-[11px] font-semibold text-ink/30">
+                      edit
+                    </div>
+                  </div>
+                </Link>
               </li>
             ))}
           </ul>
