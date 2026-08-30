@@ -1,4 +1,4 @@
-import Anthropic from "@anthropic-ai/sdk";
+import { anthropicClient } from "./anthropic";
 import type { GroupMember, ParsedReceipt } from "./types";
 
 /**
@@ -108,7 +108,7 @@ export function isConfigured(): boolean {
 export async function parseReceiptAndSplit(
   params: ParseParams,
 ): Promise<ParsedReceipt> {
-  const anthropic = new Anthropic();
+  const anthropic = anthropicClient();
   const memberNames = params.members.map((m) => m.displayName).join(", ");
 
   const response = await anthropic.messages.create({

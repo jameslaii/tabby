@@ -1,4 +1,4 @@
-import Anthropic from "@anthropic-ai/sdk";
+import { anthropicClient } from "./anthropic";
 import { CATEGORIES, classifyLocally, isCategory, type Category } from "./categories";
 
 /**
@@ -76,7 +76,7 @@ export async function classifyBatch(
   if (items.length === 0) return {};
   if (!isConfigured()) return classifyBatchLocally(items);
 
-  const anthropic = new Anthropic();
+  const anthropic = anthropicClient();
   const payload = items.map((item) => ({
     id: item.id,
     description: item.description,
